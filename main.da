@@ -11,10 +11,9 @@ def get_proto(name):
 class MI_PROTO():
   def __init__(self):
     pass
-
-  def load(addr, ctx):
-    ctx.send(
-    ctx.receive()
+  
+  ## def load(addr, ctx):
+  ##   ctx.send('msg', to=ctx.memory_ctrl)
 
 
 class Cache():
