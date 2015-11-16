@@ -1,0 +1,99 @@
+import sys
+
+ENOTSUPP = 2
+
+def get_proto(name):
+  if name == "MI":
+    return MI_PROTO()
+  else:
+    exit(-ENOTSUPP)
+
+class MI_PROTO():
+  def __init__(self):
+    pass
+
+  def load(addr, ctx):
+    ctx.send(
+    ctx.receive()
+
+
+class Cache():
+  """LRU cache instantiate with a particular protocol"""
+  def __init__(self, protocol, size):
+    self.memory = [(protocol.get_header(), "0x00000000") for i in range(size)]
+  
+  def __reorder(addr):
+    """Maintain LRU order after access to addr"""
+    memory.remove(addr)
+    memory.insert(0,addr)
+
+  def load(addr, ctx):
+    """Called by processor"""
+    protocol.load(addr, ctx)
+    self.__reorder(addr)
+
+  def store(addr, ctx):
+    """Called by processor"""
+    protocol.store(addr, ctx)
+    self.__reorder(addr)
+
+  def command(cmd):
+    """called by other caches and memory such as invalidate x.
+       Protocol should handle this."""
+    protocol.handle(cmd, ctx)
+
+class Processor(process):
+    def setup(memory_ctrl, other_processors, trace, cache):
+      pass
+    
+    def execute(inst):
+      type, addr = inst
+      if type == "r":
+        cache.load(addr, self)
+      
+      elif type == "w":
+        cache.store(addr, self)
+      
+      else:
+        print("Unexpected instruction:", inst);
+    
+    def receive(msg=('command', cmd, p)):
+      cache.command(cmd, self)
+      send('cmd_ack', to=p)
+
+    def run():
+      for inst in trace:
+        execute(inst)
+
+class Memory_Controller(process):
+    def setup(protocol, processors):
+      pass
+
+    def receive(msg= ('derefer', addr, p)):
+      send(look_up(addr), p)
+
+    def receive(msg= ('done',)): exit()
+      
+    def run():
+        await(False)
+
+def main():
+    nprocessors = int(sys.argv[1]) if len(sys.argv) > 1 else 2
+    proto_name = sys.argv[2] if len(sys.argv) > 2 else 'MI'
+    trace_file = sys.argv[3] if len(sys.argv) > 3 else exit(-1)
+    
+    trace = get_traces(trace_file)
+    protocol = get_protocol(proto_name)
+    memory_ctrl = new(Memory_Controller)
+    setup(memory_ctrl, (protocol, processors))
+    
+    processors = new(Processor, num= nprocessor)
+    
+    for p in processors: setup(p, (memory_ctrl, (processors - {p}), trace, cache)
+    
+    start(processors | memory_ctrl)
+
+    for p in processors: p.join()         
+    da.send(('done',), to= memory_ctrl)
+    print('-----END-----')         
+
