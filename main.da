@@ -11,40 +11,14 @@ def get_proto_class(name):
 
 ## Exemplary implementation of PROTOCOL Classes
 class MI_PROTO_CACHE(process):
-  def setup(cache_protocol_obj, other_protocol_obj):
-    pass
-  
+  def setup(mem_ctrl_protocol_obj, other_protocol_obj, size):
+    self.memory = [(0,"0x00000000") for i in range(size)]
+    
   def run():
-    pass
-  
-  def get_header():
-    return (0, 0)
+    await(False)
 
-  ## def load(addr, ctx):
-  ##   send('msg', to=memory_ctrl)
-
-class MI_PROTO_CTRL(process):
-  def setup(cache_protocol_objs):
-    pass
-  
-  def run():
-    pass
-  
-  def get_header():
-    return (0, 0)
-
-  ## def load(addr, ctx):
-  ##   send('msg', to=memory_ctrl)
-
-
-class Cache():
-  """LRU cache instantiate with a particular protocol"""
-  def __init__(self, protocol, size):
-    self.memory = [(protocol.get_header(), "0x00000000") for i in range(size)]
-  
-  def __reorder(self, addr):
-    """Maintain LRU order after access to addr"""
-
+  def reorder(addr):
+    """ CORRECT THIS LOGIC"""
     if addr in self.memory: 
       self.memory.remove(addr)
     else:
@@ -52,56 +26,80 @@ class Cache():
     
     self.memory.insert(0,addr)
 
-  def load(self, addr):
-    """Called by processor"""
-    self.protocol.load(addr)
-    self.__reorder(addr)
+  def receive(msg=('load',addr, p), from_=s):
+    print("Received LOAD request for addr %s" % addr);
+    self.reorder(addr)
+    print("Sending Ack")
+    send('completed', to=s)
+  
+  def receive(msg=('store',addr, p), from_=s):
+    print("Received STORE request for addr %s" % addr);
+    self.reorder(addr)
+    print("Sending Ack")
+    send('completed', to=s)
+  
+  def receive(msg= ('done',)):
+    print("Cache Exiting\n")
+    exit()
 
-  def store(self, addr):
-    """Called by processor"""
-    self.protocol.store(addr)
-    self.__reorder(addr)
+  """LRU cache instantiate with a particular protocol"""
+  """Maintain LRU order after access to addr"""
+  """Called by processor"""
+  """Called by processor"""
+
+class MI_PROTO_CTRL(process):
+  def setup(cache_protocol_objs):
+    pass
+  
+  def run():
+    await(False)
+  
+  def receive(msg=('msg')):
+    print("recevied msg\n")
+
+  def receive(msg= ('done',)): 
+    print("CTRL Exiting\n")
+    exit()
 
 class Processor(process):
     def setup(trace, protocol):
-      self.cache = Cache(protocol, CACHE_SIZE)
+      self.keep_waiting = False
+      ## self.cache = Cache(protocol, CACHE_SIZE)
     
     def execute(inst):
       type, addr = inst
       if type == "r":
-        cache.load(addr, self)
+        send(('load', addr, self.id), to=protocol)
       
       elif type == "w":
-        cache.store(addr, self)
+        send(('store', addr, self.id), to=protocol)
       
       else:
         print("Unexpected instruction:", inst);
     
     def run():
       for inst in trace:
+        keep_waiting = False
         execute(inst)
-      protocol.join()
+        await(keep_waiting)
+      ## await(False)
 
-class Memory_Controller():
-    def __init__(self, protocol):
-      start(protocol)
-      self.protocol = protocol
-      print("Initialized memory controller");
+      send(('done',), to=protocol)
+      ## protocol.join()
+      print("Processor Exits")
 
-    def register_caches(self, protocol_objs):
-      self.caches = protocol_objs
-
-    def run(self):
-      self.protocol.join()
+    def receive(msg= ('completed')):
+      print("ACKed\n")
+      keep_waiting = True
 
 def get_traces(trace_file):
   return [
           [('r', '0x11111111'),
           ('r', '0x11111111'),
-          ('r', '0x11111111')],
+          ('w', '0x11111111')],
 
           [('r', '0x11111111'),
-          ('r', '0x11111111'),
+          ('w', '0x11111111'),
           ('r', '0x11111111')]
          ]
 
@@ -118,17 +116,14 @@ def main():
     protocol_objs = new(Proto_cache, num=nprocessors)
     
     ## Setup Protocol for ctrller
-    setup(mem_ctrl_protocol_obj, (protocol_objs))
+    setup(mem_ctrl_protocol_obj, (protocol_objs,))
     start(mem_ctrl_protocol_obj)
 
     ## Setup Protocols for caches
     for proto_obj in protocol_objs:
-      setup(proto_obj, (mem_ctrl_protocol_obj, (protocol_objs - {proto_obj})))
+      setup(proto_obj, (mem_ctrl_protocol_obj, protocol_objs - {proto_obj}, CACHE_SIZE))
       start(proto_obj)
 
-    ## Setup Memory Controller
-    memory_ctrl = Memory_Controller(mem_ctrl_protocol_obj)
-    
     ## Setup Processors
     processors = new(Processor, num= nprocessors)
     
@@ -139,10 +134,13 @@ def main():
       setup(processors_list[i], (trace[i], protocol_objs_list[i]))
     
     start(processors)
-
+    
+    ## Exiting logic  
     for p in processors: 
       p.join()
-    
+
     da.send(('done',), to= mem_ctrl_protocol_obj)
-    print('-----END-----')         
+    for m in mem_ctrl_protocol_obj:
+      m.join()
+    print('-----END-----')
 
