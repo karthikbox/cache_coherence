@@ -4,6 +4,11 @@ based on the online implementation - https://github.com/samuelbritt/CS6290-prj3
 
 To implement the protocol in DistAlgo, we are using a combination of snooping 
 protocol logic and directory protocol logic.
+
+Note: Certain parts of the implementation are same for our group as they are generic classes/methods
+      which are common to all protocols and is part of the intial setup. The other members of the group are
+      Parag Gupta, Karthik Reddy, Garima Gehlot and Amit Kandelwal. I have mentioned the author/source in 
+      the comments section of the appropriate classes/methods
 """
 
 ENOTSUPP = 2
@@ -15,6 +20,8 @@ s = ""
 def get_proto_class(name):
   """
   return the corresponding protocol class name and controller name
+  generic to all protocol implementations
+  Author : Parag Gupta (https://github.com/karthikbox/cache_coherence/tree/p_template/main.da)
   """
   if name == "MI":
     return (eval("MI_PROTO_CACHE"), eval("MI_PROTO_CTRL"))
@@ -227,6 +234,7 @@ class Processor():
       - reads the execution trace one instruction at a time and executes it
       - All the load/store intstructions will be send to it's cache controller process
       - Inherits from the process class in DistAlgo
+      - generic to all protocol implementations
     """
     def setup(trace, protocol):
       """
@@ -266,6 +274,7 @@ class Processor():
 
 def get_traces(trace_file):
   """
+    get_traces - generic to all protocol implementations
     Get the execution trace list for all the processors
   """
   return [
@@ -284,7 +293,7 @@ def get_traces(trace_file):
 
 def main():
     """
-      main routine:
+      main routine - generic to all protocol implementations:
         - spawn DistAlgo processes for n processors, n cache controllers and a
           memory controller 
         - get execution traces for each of the processors
