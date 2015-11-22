@@ -2,7 +2,8 @@ import sys
 import time
 
 ENOTSUPP = 2
-CACHE_SIZE = 512
+#CACHE_SIZE = 512
+CACHE_SIZE = 2
 
 def get_proto_class(name):
   if name == "MI":
@@ -15,7 +16,6 @@ class MI_PROTO_CACHE(process):
   def setup(mem_ctrl_protocol_obj, other_protocol_obj, size):
     self.memory = []
     self.get_from_caches = False
-    self.get_from_memory = False
     self.wait_for_caches = False
     self.wait_for_memory = False
     
@@ -29,7 +29,10 @@ class MI_PROTO_CACHE(process):
     else:
       """ Check if the cache is full """
       if len(self.memory) == size:
-        self.memory.pop()
+        print("Cache is full")
+        (state, last_addr) = self.memory.pop()
+        if state == 1:
+          send(('flush', last_addr), to=mem_ctrl_protocol_obj)
     
     self.memory.insert(0, (1, addr))
 
@@ -42,30 +45,36 @@ class MI_PROTO_CACHE(process):
       wait_for_memory = False
       send(('get', addr), to=mem_ctrl_protocol_obj)
       await(wait_for_memory)
-      if not get_from_memory:
-        print("Cannot find address in memory")
-        """ Not found, not sure what to do here """
 
     """ Receive data from cache/memory, invalidate all other copies """
+    get_from_caches = False
     send(('invalidate', addr), to=other_protocol_obj)
 
   def receive(msg= ('get',addr), from_= p):
     """ Add time delay here to mimic cache-to-cache latency """
+    time.sleep(1)
     print("Cache request for address: ", addr)
     if (1, addr) in self.memory:
       """ invalidate cache block """
-      [(0,addr) if x==(1,addr) else x for x in self.memory]
+      new_cache = [(0,addr) if x==(1,addr) else x for x in self.memory]
+      self.memory = new_cache
       send(('found_in_cache'), to=p)
     else:
       send(('not_found_in_cache'), to=p)
 
-  def receive(msg= ('invalidate',addr), from_= p):
-    [(0,addr) if x==(1,addr) else x for x in self.memory]
+  def receive(msg= ('invalidate', addr), from_= p):
+    """ invalidate cache block """
+    new_cache = [(0,addr) if x==(1,addr) else x for x in self.memory]
+    self.memory = new_cache
 
   def receive(msg=('found_in_cache')):
     print("Addr received from another cache")
     get_from_caches = True
     wait_for_caches = True
+
+  def receive(msg=('located_in_cache', addr)):
+    wait_for_memory = True
+    get_addr(addr)
 
   def receive(msg=('not_found_in_cache')):
     if len(setof(a, received(('not_found_in_cache'), from_ =a))) == len(other_protocol_obj):
@@ -74,7 +83,7 @@ class MI_PROTO_CACHE(process):
 
   def receive(msg=('found_in_memory')):
     print("Addr received from memory")
-    get_from_memory = True
+    #get_from_memory = True
     wait_for_memory = True
 
   def receive(msg=('not_found_in_memory')):
@@ -105,7 +114,7 @@ class MI_PROTO_CACHE(process):
 
 class MI_PROTO_CTRL(process):
   def setup(cache_protocol_objs):
-    pass
+    self.memory_ref = dict()
   
   def run():
     await(False)
@@ -115,9 +124,17 @@ class MI_PROTO_CTRL(process):
 
   def receive(msg= ('get',addr), from_= p):
     """ Add time delay here to mimic cache-to-memory latency """
-    send(('found_in_memory'), to=p)
+    time.sleep(3)
+    if addr in self.memory_ref and self.memory_ref[addr] > 0:
+      send(('located_in_cache', addr), to=p)
+    else:
+      self.memory_ref[addr] = 1
+      send(('found_in_memory'), to=p)
 
-  def receive(msg= ('done',)): 
+  def receive(msg= ('flush', addr)):
+    self.memory_ref[addr] = 0
+
+  def receive(msg= ('done',)):
     print("CTRL Exiting\n")
     exit()
 
@@ -143,8 +160,6 @@ class Processor(process):
         execute(inst)
         await(keep_waiting)
 
-      #send(('done',), to=protocol)
-      ## protocol.join()
       print("Processor Exits")
 
     def receive(msg= ('completed')):
@@ -160,9 +175,9 @@ def get_traces(trace_file):
           ],
 
           [
-           ('r', '0x11111113'),
+           ('r', '0x11111111'),
            ('w', '0x11111115'),
-           ('r', '0x11111111')
+           ('r', '0x11111112')
           ]
          ]
 
@@ -175,7 +190,7 @@ def main():
     trace = get_traces(trace_file)
     Proto_cache, Proto_ctrl = get_proto_class(proto_name)
     
-    ## Initialize protocol objs for caches and ctrller
+    ## Initialize protocol objs for caches and controller
     mem_ctrl_protocol_obj = new(Proto_ctrl, num=1)
     protocol_objs = new(Proto_cache, num=nprocessors)
     
