@@ -1,4 +1,5 @@
 import sys
+import time
 
 ENOTSUPP = 2
 CACHE_SIZE = 512
@@ -12,28 +13,88 @@ def get_proto_class(name):
 ## Exemplary implementation of PROTOCOL Classes
 class MI_PROTO_CACHE(process):
   def setup(mem_ctrl_protocol_obj, other_protocol_obj, size):
-    self.memory = [(0,"0x00000000") for i in range(size)]
+    self.memory = []
+    self.get_from_caches = False
+    self.get_from_memory = False
+    self.wait_for_caches = False
+    self.wait_for_memory = False
     
   def run():
     await(False)
 
   def reorder(addr):
-    """ CORRECT THIS LOGIC"""
-    if addr in self.memory: 
-      self.memory.remove(addr)
+    """ Check if the addr is present in the list """
+    if (1, addr) in self.memory: 
+      self.memory.remove((1, addr))
     else:
-      self.memory.pop()
+      """ Check if the cache is full """
+      if len(self.memory) == size:
+        self.memory.pop()
     
-    self.memory.insert(0,addr)
+    self.memory.insert(0, (1, addr))
+
+  """ Address not in cache, snoop other caches or get from memory """
+  def get_addr(addr):
+    wait_for_caches = False;
+    send(('get', addr), to=other_protocol_obj)
+    await(wait_for_caches)
+    if not get_from_caches:
+      wait_for_memory = False
+      send(('get', addr), to=mem_ctrl_protocol_obj)
+      await(wait_for_memory)
+      if not get_from_memory:
+        print("Cannot find address in memory")
+        """ Not found, not sure what to do here """
+
+    """ Receive data from cache/memory, invalidate all other copies """
+    send(('invalidate', addr), to=other_protocol_obj)
+
+  def receive(msg= ('get',addr), from_= p):
+    """ Add time delay here to mimic cache-to-cache latency """
+    print("Cache request for address: ", addr)
+    if (1, addr) in self.memory:
+      """ invalidate cache block """
+      [(0,addr) if x==(1,addr) else x for x in self.memory]
+      send(('found_in_cache'), to=p)
+    else:
+      send(('not_found_in_cache'), to=p)
+
+  def receive(msg= ('invalidate',addr), from_= p):
+    [(0,addr) if x==(1,addr) else x for x in self.memory]
+
+  def receive(msg=('found_in_cache')):
+    print("Addr received from another cache")
+    get_from_caches = True
+    wait_for_caches = True
+
+  def receive(msg=('not_found_in_cache')):
+    if len(setof(a, received(('not_found_in_cache'), from_ =a))) == len(other_protocol_obj):
+      print("Addr not found in the other caches")
+      wait_for_caches = True 
+
+  def receive(msg=('found_in_memory')):
+    print("Addr received from memory")
+    get_from_memory = True
+    wait_for_memory = True
+
+  def receive(msg=('not_found_in_memory')):
+    print("Addr not found in memory")
+    wait_for_memory = True
 
   def receive(msg=('load',addr, p), from_=s):
     print("Received LOAD request for addr %s" % addr);
+    if (1,addr) not in self.memory:
+      """ Cache miss logic """
+      get_addr(addr)
     self.reorder(addr)
     print("Sending Ack")
     send('completed', to=s)
   
   def receive(msg=('store',addr, p), from_=s):
     print("Received STORE request for addr %s" % addr);
+    if (1,addr) not in self.memory:
+      """ Cache miss logic """
+      get_addr(addr)
     self.reorder(addr)
     print("Sending Ack")
     send('completed', to=s)
@@ -41,11 +102,6 @@ class MI_PROTO_CACHE(process):
   def receive(msg= ('done',)):
     print("Cache Exiting\n")
     exit()
-
-  """LRU cache instantiate with a particular protocol"""
-  """Maintain LRU order after access to addr"""
-  """Called by processor"""
-  """Called by processor"""
 
 class MI_PROTO_CTRL(process):
   def setup(cache_protocol_objs):
@@ -56,6 +112,10 @@ class MI_PROTO_CTRL(process):
   
   def receive(msg=('msg')):
     print("recevied msg\n")
+
+  def receive(msg= ('get',addr), from_= p):
+    """ Add time delay here to mimic cache-to-memory latency """
+    send(('found_in_memory'), to=p)
 
   def receive(msg= ('done',)): 
     print("CTRL Exiting\n")
@@ -70,7 +130,7 @@ class Processor(process):
       type, addr = inst
       if type == "r":
         send(('load', addr, self.id), to=protocol)
-      
+     
       elif type == "w":
         send(('store', addr, self.id), to=protocol)
       
@@ -82,9 +142,8 @@ class Processor(process):
         keep_waiting = False
         execute(inst)
         await(keep_waiting)
-      ## await(False)
 
-      send(('done',), to=protocol)
+      #send(('done',), to=protocol)
       ## protocol.join()
       print("Processor Exits")
 
@@ -94,19 +153,24 @@ class Processor(process):
 
 def get_traces(trace_file):
   return [
-          [('r', '0x11111111'),
-          ('r', '0x11111111'),
-          ('w', '0x11111111')],
+          [
+           ('r', '0x11111111'),
+           ('r', '0x11111112'),
+           ('w', '0x11111113')
+          ],
 
-          [('r', '0x11111111'),
-          ('w', '0x11111111'),
-          ('r', '0x11111111')]
+          [
+           ('r', '0x11111113'),
+           ('w', '0x11111115'),
+           ('r', '0x11111111')
+          ]
          ]
 
 def main():
     nprocessors = int(sys.argv[1]) if len(sys.argv) > 1 else 2
     proto_name = sys.argv[2] if len(sys.argv) > 2 else 'MI'
-    trace_file = sys.argv[3] if len(sys.argv) > 3 else exit(-1)
+    #trace_file = sys.argv[3] if len(sys.argv) > 3 else exit(-1)
+    trace_file = sys.argv[3] if len(sys.argv) > 3 else 'none'
     
     trace = get_traces(trace_file)
     Proto_cache, Proto_ctrl = get_proto_class(proto_name)
@@ -138,6 +202,10 @@ def main():
     ## Exiting logic  
     for p in processors: 
       p.join()
+
+    da.send(('done',), to= protocol_objs)
+    for m in protocol_objs:
+      m.join()
 
     da.send(('done',), to= mem_ctrl_protocol_obj)
     for m in mem_ctrl_protocol_obj:
