@@ -2,8 +2,7 @@ import sys
 import time
 
 ENOTSUPP = 2
-#CACHE_SIZE = 512
-CACHE_SIZE = 2
+CACHE_SIZE = 512
 
 def get_proto_class(name):
   if name == "MI":
@@ -12,12 +11,16 @@ def get_proto_class(name):
     exit(-ENOTSUPP)
 
 ## Exemplary implementation of PROTOCOL Classes
+"""
+  MI Protocol class:
+"""
 class MI_PROTO_CACHE(process):
   def setup(mem_ctrl_protocol_obj, other_protocol_obj, size):
     self.memory = []
     self.get_from_caches = False
     self.wait_for_caches = False
     self.wait_for_memory = False
+    self.get_from_memory = False
     
   def run():
     await(False)
@@ -45,10 +48,12 @@ class MI_PROTO_CACHE(process):
       wait_for_memory = False
       send(('get', addr), to=mem_ctrl_protocol_obj)
       await(wait_for_memory)
-
-    """ Receive data from cache/memory, invalidate all other copies """
+      if get_from_memory:
+        send(('invalidate', addr), to=other_protocol_obj)
+    else:
+      """ Receive data from cache/memory, invalidate all other copies """
+      send(('invalidate', addr), to=other_protocol_obj)
     get_from_caches = False
-    send(('invalidate', addr), to=other_protocol_obj)
 
   def receive(msg= ('get',addr), from_= p):
     """ Add time delay here to mimic cache-to-cache latency """
@@ -83,7 +88,7 @@ class MI_PROTO_CACHE(process):
 
   def receive(msg=('found_in_memory')):
     print("Addr received from memory")
-    #get_from_memory = True
+    get_from_memory = True
     wait_for_memory = True
 
   def receive(msg=('not_found_in_memory')):
