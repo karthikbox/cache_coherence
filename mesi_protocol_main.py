@@ -1,22 +1,42 @@
-import sys
-import time
+"""
+MESI cache coherence protocol implementation in DistAlgo
+This is based on a Directory Controller based implementation.
 
+Run as:
+        python -m da main.da <num_processors> <protocol_name> <trace_filepath>
 
+Reference: Sorin, Daniel J., Mark D. Hill, and David A. Wood. "A primer on memory consistency and cache coherence." 
+Synthesis Lectures on Computer Architecture 6.3 (2011): 1-212.
+Note: Certain parts of the implementation are same for our group as they are generic classes/methods
+      which are common to all protocols and is part of the intial setup.
+      Team Members:
+        Karthik Reddy
+        Amit Khandelwal
+        Paul Mathew
+        Garima Gehlot
+        Parag Gupta
+      Code is referenced where it has been copied.
+"""
+addr=1234
+p="process"
+s="set"
+ack=""
 
-class MESI_CACHE_CONTROLLER(process):
+class MESI_CACHE_CONTROLLER():
   """
-      Extends DistAlgo "process" class.
-      Each instance of this class represents a Cache controller of size "CACHE_SIZE".
-      Cache controller makes local and remote transitions depending on whether data is present in the cache or not.
-      Each Cache controller communicates directly with Directory Controller.
-      Reference: Sorin, Daniel J., Mark D. Hill, and David A. Wood. "A primer on memory consistency and cache coherence." Synthesis Lectures on Computer Architecture 6.3 (2011): 1-212.
+  Extends DistAlgo "process" class.
+  Each instance of this class represents a Cache controller of size "CACHE_SIZE".
+  Cache controller makes local and remote transitions depending on whether data is present in the cache or not.
+  Each Cache controller communicates directly with Directory Controller.
+  Reference: Sorin, Daniel J., Mark D. Hill, and David A. Wood. "A primer on memory consistency and cache coherence." Synthesis Lectures on Computer Architecture 6.3 (2011): 1-212.
   """
   
   def setup(dir_ctrl_obj):
-    """ Input: Directory controller object address.
-        Output: Return a MI_PROTO_CACHE object.
-        Memory is list of tuples (State,Address).
-        All action the cache takes depends on the state of an address stored in memory.
+    """ 
+    Input: Directory controller object address.
+    Output: Return a MI_PROTO_CACHE object.
+    Memory is list of tuples (State,Address).
+    All action the cache takes depends on the state of an address stored in memory.
     """
     self.memory = []
     
@@ -29,11 +49,12 @@ class MESI_CACHE_CONTROLLER(process):
     pass
   
   def doWrite(addr):
-    """ Requests Write access to 'addr'.
-        If address is present in cache with state Modified, do the write. 
-        Otherwise, sends "GetM" message to the directory controller.
-        Receives data from the directory controller or from any other cache who is a owner.
-        Guarantees that this is the only copy in the system.
+    """ 
+    Requests Write access to 'addr'.
+    If address is present in cache with state Modified, do the write. 
+    Otherwise, sends "GetM" message to the directory controller.
+    Receives data from the directory controller or from any other cache who is a owner.
+    Guarantees that this is the only copy in the system.
     """
     if memory.find(addr).state!='M':
       make_transition_to_M(addr)
@@ -41,19 +62,20 @@ class MESI_CACHE_CONTROLLER(process):
 
 
   def doRead(addr):
-    """ Requests Read access to 'addr'.
-        If address already exists in cache with either of the Modified, Exclusive and Shared state, do the read and return.
-        If addr state is Invalid, sends "GetShared" message to the directory controller.
-        Receives data from the directory controller or from any other cache who is a owner.
-        There may or may not be other copies in the system.
-        Make transition to Shared state.
+    """
+    Requests Read access to 'addr'.
+    If address already exists in cache with either of the Modified, Exclusive and Shared state, do the read and return.
+    If addr state is Invalid, sends "GetShared" message to the directory controller.
+    Receives data from the directory controller or from any other cache who is a owner.
+    There may or may not be other copies in the system.
+    Make transition to Shared state.
     """
     if addr not in memory:
       make_transition_to_S(addr)
     return memory.find(addr)
 
 
-  def receive(msg=('load',addr, p), from_=s):
+  def receive_load_address(msg=('load',addr, p), from_=s):
     """ Executes Read instruction on 'addr'
         Input: Memory address. 
         Output: Read to memory address. Ensures cache coherence.
@@ -63,107 +85,108 @@ class MESI_CACHE_CONTROLLER(process):
     print("Sending Ack")
     send('completed', to=s)
   
-  def receive(msg=('store',addr, p), from_=s):
-    """ Executes Write instruction on 'addr'
-        Input: Memory address. 
-        Output: Writes to memory address. Ensures cache coherence.
+  def receive_store_address(msg=('store',addr, p), from_=s):
+    """
+    Executes Write instruction on 'addr'
+    Input: Memory address. 
+    Output: Writes to memory address. Ensures cache coherence.
     """
     doRead(addr)
     updateLRU(addr)
     print("Sending Ack to Processor")
     send('completed', to=s)
 
-    def receive(msg=('Fwd-GetS',addr,p), from_=s):
-      """ 
-          The cache is one of the sharers/owner of the address. 
-          Reply back to Directory controller and to the requesting cache
-      """
-      pass
+  def receive_forward_getS(msg=('Fwd-GetS',addr,p), from_=s):
+    """ 
+    The cache is one of the sharers/owner of the address. 
+    Reply back to Directory controller and to the requesting cache
+    """
+    pass
 
-    def receive(msg=('Fwd-GetM',addr,p), from_=s):
-      """ 
-          The cache is the owner of the address. 
-          Reply back to the requesting cache.
-      """
-      pass
+  def receive_forward_getM(msg=('Fwd-GetM',addr,p), from_=s):
+    """ 
+    The cache is the owner of the address. 
+    Reply back to the requesting cache.
+    """
+    pass
 
-    def receive(msg=('Put-Ack',addr,p), from_=s):
-      """ 
-          Acknowledment from directory controller for making a successful transition
-      """
-      pass
+  def receive_put_ack(msg=('Put-Ack',addr,p), from_=s):
+    """ 
+    Acknowledment from directory controller for making a successful transition
+    """
+    pass
 
-    def receive(msg=('Data-from-owner',addr,p), from_=s):
-      """ 
-          Data received from the owner/sharer of the memory address
-      """
-      pass
+  def receive_data_from_owner(msg=('Data-from-owner',addr,p), from_=s):
+    """ 
+    Data received from the owner/sharer of the memory address
+    """
+    pass
 
-    def receive(msg=('Data-from-dir-with-ack',ack,addr,p), from_=s):
-      """ 
-          Data received from Directory Controller. Cache must wait for "Inv-Acks" from "ack">=0 number of caches.
-          If "ack">0: This makes sure that "ack" Sharers have invalidated their data.
-          If "ack"=0: No need to wait for any acks from the Sharers.
-      """
-      pass
-
-
-    def receive(msg=('Inv-Ack',addr,p), from_=s):
-      """
-          Count till the Invalid Acknowledgements reach  the required limit.
-          Ack--
-      """
-      pass
-
-    def mak_transition_from_I_to_S(addr):
-      """
-          Go from Invalid state to Shared state
-      """
-      pass
-
-    def mak_transition_from_I_to_M(addr):
-      """
-          Go from Invalid state to Modified state
-          Guarentees unique copy in the system
-      """
-      pass
-
-    def mak_transition_from_S_to_M(addr):
-      """
-          Go from Shared state to Modified state
-          Guarentees unique copy in the system
-      """
-      pass
-
-    def mak_transition_from_M_to_I(addr):
-      """
-          Go from Modified state to Invalid state
-          Write back to memory.
-          Happens due to evictions.
-      """
-      pass
-
-    def mak_transition_from_E_to_M(addr):
-      """
-          Go from exclusive state to Modified state. This is a silent transition.
-      """
-      pass
-
-    def mak_transition_from_X_to_I(addr):
-      """
-          Go from states M,S,E to Invalid state.
-      """
-      pass
+  def receive_data_from_dir_with_ack(msg=('Data-from-dir-with-ack',ack,addr,p), from_=s):
+    """ 
+    Data received from Directory Controller. Cache must wait for "Inv-Acks" from "ack">=0 number of caches.
+    If "ack">0: This makes sure that "ack" Sharers have invalidated their data.
+    If "ack"=0: No need to wait for any acks from the Sharers.
+    """
+    pass
     
 
-    def receive(msg= ('done',)):
-      """
-          Exit the Cache Controller process.
-      """
-      print("Cache Exiting\n")
-      exit()
+  def receive_invalid_ack(msg=('Inv-Ack',addr,p), from_=s):
+    """
+    Count till the Invalid Acknowledgements reach  the required limit.
+    Ack--
+    """
+    pass
 
-class MESI_DIRECTORY_CONTROLLER(process):
+  def mak_transition_from_I_to_S(addr):
+    """
+    Go from Invalid state to Shared state
+    """
+    pass
+
+  def mak_transition_from_I_to_M(addr):
+    """
+    Go from Invalid state to Modified state
+    Guarentees unique copy in the system
+    """
+    pass
+
+  def mak_transition_from_S_to_M(addr):
+    """
+    Go from Shared state to Modified state
+    Guarentees unique copy in the system
+    """
+    pass
+
+  def mak_transition_from_M_to_I(addr):
+    """
+    Go from Modified state to Invalid state
+    Write back to memory.
+    Happens due to evictions.
+    """
+    pass
+
+  def mak_transition_from_E_to_M(addr):
+    """
+    Go from exclusive state to Modified state. This is a silent transition.
+    """
+    pass
+
+  def mak_transition_from_X_to_I(addr):
+    """
+    Go from states M,S,E to Invalid state.
+    """
+    pass
+    
+
+  def receive_done(msg= ('done',)):
+    """
+    Exit the Cache Controller process.
+    """
+    print("Cache Exiting\n")
+    exit()
+
+class MESI_DIRECTORY_CONTROLLER():
   """
   Encapsulates a the methods and data of a Directory Controller object.
   Directory Controller tracks the status of each Cache Controller.
@@ -172,8 +195,9 @@ class MESI_DIRECTORY_CONTROLLER(process):
 
   
   def setup(cache_protocol_objs):
-    """ Inits a dict object to store for each cache line the "status"(eg. Modified/Invalid), 
-        "Owner"(Address of the owner cache controller) and "Sharers"(a list of cache controller addresses).
+    """ 
+    Inits a dict object to store for each cache line the "status"(eg. Modified/Invalid), 
+    "Owner"(Address of the owner cache controller) and "Sharers"(a list of cache controller addresses).
     """
     self.memory_ref = dict()
   
@@ -181,7 +205,7 @@ class MESI_DIRECTORY_CONTROLLER(process):
     """ Run the Directory Controller process."""
     await(False)
   
-  def receive(msg= ('getS',addr), from_= p):
+  def receive_getS(msg= ('getS',addr), from_= p):
     """
     If current state of addr is:
     I: send Exclusive data to requestor Cahce, set owner to Requestor and status to E
@@ -192,7 +216,7 @@ class MESI_DIRECTORY_CONTROLLER(process):
     """
     pass
 
-  def receive(msg= ('getM',addr), from_= p):
+  def receive_getM(msg= ('getM',addr), from_= p):
     """
     If current state of addr is:
     I: send data to Req, set Owner to Req/M
@@ -203,7 +227,7 @@ class MESI_DIRECTORY_CONTROLLER(process):
     """
     pass
 
-  def receive(msg= ('putM-from-owner',addr), from_= p):
+  def receive_putM_from_owner(msg= ('putM-from-owner',addr), from_= p):
     """
     If current state of addr is:
     E: copy data to mem, send Put- Ack to Req, clear Owner/I
@@ -211,7 +235,7 @@ class MESI_DIRECTORY_CONTROLLER(process):
     """
     pass
 
-  def receive(msg= ('putM-from-nonowner',addr), from_= p):
+  def receive_putM_from_nonowner(msg= ('putM-from-nonowner',addr), from_= p):
     """
     If current state of addr is:
     I: send Put-Ack to Req
@@ -222,7 +246,7 @@ class MESI_DIRECTORY_CONTROLLER(process):
     """
     pass
 
-  def receive(msg= ('putE-from-nonowner',addr), from_= p):
+  def receive_putE_from_nonowner(msg= ('putE-from-nonowner',addr), from_= p):
     """
     If current state of addr is:
     I: send Put-Ack to Req
@@ -233,31 +257,22 @@ class MESI_DIRECTORY_CONTROLLER(process):
     """
     pass
 
-  def receive(msg= ('putM-from-owner',addr), from_= p):
+  def receive_putM_from_owner(msg= ('putM-from-owner',addr), from_= p):
     """
     If current state of addr is:
     E: send Put-Ack to Req, clear Owner/I
     """
     pass
   
-  def receive(msg= ('get',addr), from_= p):
-    """ Add time delay here to mimic cache-to-memory latency """
-    time.sleep(3)
-    if addr in self.memory_ref and self.memory_ref[addr] > 0:
-      send(('located_in_cache', addr), to=p)
-    else:
-      self.memory_ref[addr] = 1
-      send(('found_in_memory'), to=p)
 
-
-  def receive(msg= ('done',)):
+  def receive_done(msg= ('done',)):
     """
-        Exit the Cache Controller process.
+    Exit the Cache Controller process.
     """
     print("CTRL Exiting\n")
     exit()
 
-class Processor(process):
+class Processor():
   """
   Represents a Processor.
   The Processor reads from a trace file and issues "load"/"store" instructions to Cache controller object. The processor will wait till the cache object acknowledges a successful execution. Then it executes another intruction.
@@ -308,16 +323,15 @@ def get_traces(trace_file):
 
 def get_proto_class(name):
   """
-      Input: Cache Coherence algorithm string. Eg: "MESI","MI",etc
-      Returns: Return Class of the Algorithm. Eg: class MESI_CACHE_CONTROLLER, class MESI_DIRECTORY_CONTROLLER
-      Copied this method from the follwing, since it is part of the common platform on which the Team will evaluate the protocols.
-      Reference: Parag Gupta. https://github.com/karthikbox/cache_coherence/tree/p_template/main.da
+  Input: Cache Coherence algorithm string. Eg: "MESI","MI",etc
+  Returns: Return Class of the Algorithm. Eg: class MESI_CACHE_CONTROLLER, class MESI_DIRECTORY_CONTROLLER
+  Copied this method from the follwing, since it is part of the common platform on which the Team will evaluate the protocols.
+  Reference: Parag Gupta. https://github.com/karthikbox/cache_coherence/tree/p_template/main.da
   """
   if name == "MESI":
     return (eval("MESI_CACHE_CONTROLLER"), eval("MESI_DIRECTORY_CONTROLLER"))
   else:
     exit(-ENOTSUPP)
-
 
 
 def main():

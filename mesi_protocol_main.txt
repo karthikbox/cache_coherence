@@ -1,0 +1,221 @@
+Help on module mesi_protocol_main:
+
+NAME
+    mesi_protocol_main
+
+FILE
+    /Users/karthik/cache_coherence/mesi_protocol_main.py
+
+DESCRIPTION
+    MESI cache coherence protocol implementation in DistAlgo
+    This is based on a Directory Controller based implementation.
+    
+    Run as:
+            python -m da main.da <num_processors> <protocol_name> <trace_filepath>
+    
+    Reference: Sorin, Daniel J., Mark D. Hill, and David A. Wood. "A primer on memory consistency and cache coherence." 
+    Synthesis Lectures on Computer Architecture 6.3 (2011): 1-212.
+    Note: Certain parts of the implementation are same for our group as they are generic classes/methods
+          which are common to all protocols and is part of the intial setup.
+          Team Members:
+            Karthik Reddy
+            Amit Khandelwal
+            Paul Mathew
+            Garima Gehlot
+            Parag Gupta
+          Code is referenced where it has been copied.
+
+CLASSES
+    MESI_CACHE_CONTROLLER
+    MESI_DIRECTORY_CONTROLLER
+    Processor
+    
+    class MESI_CACHE_CONTROLLER
+     |  Extends DistAlgo "process" class.
+     |  Each instance of this class represents a Cache controller of size "CACHE_SIZE".
+     |  Cache controller makes local and remote transitions depending on whether data is present in the cache or not.
+     |  Each Cache controller communicates directly with Directory Controller.
+     |  Reference: Sorin, Daniel J., Mark D. Hill, and David A. Wood. "A primer on memory consistency and cache coherence." Synthesis Lectures on Computer Architecture 6.3 (2011): 1-212.
+     |  
+     |  Methods defined here:
+     |  
+     |  doRead(addr)
+     |      Requests Read access to 'addr'.
+     |      If address already exists in cache with either of the Modified, Exclusive and Shared state, do the read and return.
+     |      If addr state is Invalid, sends "GetShared" message to the directory controller.
+     |      Receives data from the directory controller or from any other cache who is a owner.
+     |      There may or may not be other copies in the system.
+     |      Make transition to Shared state.
+     |  
+     |  doWrite(addr)
+     |      Requests Write access to 'addr'.
+     |      If address is present in cache with state Modified, do the write. 
+     |      Otherwise, sends "GetM" message to the directory controller.
+     |      Receives data from the directory controller or from any other cache who is a owner.
+     |      Guarantees that this is the only copy in the system.
+     |  
+     |  mak_transition_from_E_to_M(addr)
+     |      Go from exclusive state to Modified state. This is a silent transition.
+     |  
+     |  mak_transition_from_I_to_M(addr)
+     |      Go from Invalid state to Modified state
+     |      Guarentees unique copy in the system
+     |  
+     |  mak_transition_from_I_to_S(addr)
+     |      Go from Invalid state to Shared state
+     |  
+     |  mak_transition_from_M_to_I(addr)
+     |      Go from Modified state to Invalid state
+     |      Write back to memory.
+     |      Happens due to evictions.
+     |  
+     |  mak_transition_from_S_to_M(addr)
+     |      Go from Shared state to Modified state
+     |      Guarentees unique copy in the system
+     |  
+     |  mak_transition_from_X_to_I(addr)
+     |      Go from states M,S,E to Invalid state.
+     |  
+     |  receive_data_from_dir_with_ack(msg=('Data-from-dir-with-ack', '', 1234, 'process'), from_='set')
+     |      Data received from Directory Controller. Cache must wait for "Inv-Acks" from "ack">=0 number of caches.
+     |      If "ack">0: This makes sure that "ack" Sharers have invalidated their data.
+     |      If "ack"=0: No need to wait for any acks from the Sharers.
+     |  
+     |  receive_data_from_owner(msg=('Data-from-owner', 1234, 'process'), from_='set')
+     |      Data received from the owner/sharer of the memory address
+     |  
+     |  receive_done(msg=('done',))
+     |      Exit the Cache Controller process.
+     |  
+     |  receive_forward_getM(msg=('Fwd-GetM', 1234, 'process'), from_='set')
+     |      The cache is the owner of the address. 
+     |      Reply back to the requesting cache.
+     |  
+     |  receive_forward_getS(msg=('Fwd-GetS', 1234, 'process'), from_='set')
+     |      The cache is one of the sharers/owner of the address. 
+     |      Reply back to Directory controller and to the requesting cache
+     |  
+     |  receive_invalid_ack(msg=('Inv-Ack', 1234, 'process'), from_='set')
+     |      Count till the Invalid Acknowledgements reach  the required limit.
+     |      Ack--
+     |  
+     |  receive_load_address(msg=('load', 1234, 'process'), from_='set')
+     |      Executes Read instruction on 'addr'
+     |      Input: Memory address. 
+     |      Output: Read to memory address. Ensures cache coherence.
+     |  
+     |  receive_put_ack(msg=('Put-Ack', 1234, 'process'), from_='set')
+     |      Acknowledment from directory controller for making a successful transition
+     |  
+     |  receive_store_address(msg=('store', 1234, 'process'), from_='set')
+     |      Executes Write instruction on 'addr'
+     |      Input: Memory address. 
+     |      Output: Writes to memory address. Ensures cache coherence.
+     |  
+     |  run()
+     |      Starts the cache processs.
+     |  
+     |  setup(dir_ctrl_obj)
+     |      Input: Directory controller object address.
+     |      Output: Return a MI_PROTO_CACHE object.
+     |      Memory is list of tuples (State,Address).
+     |      All action the cache takes depends on the state of an address stored in memory.
+     |  
+     |  updateLRU(addr)
+     |      Update the cache LRU order internal to this cache
+    
+    class MESI_DIRECTORY_CONTROLLER
+     |  Encapsulates a the methods and data of a Directory Controller object.
+     |  Directory Controller tracks the status of each Cache Controller.
+     |  Reference: Sorin, Daniel J., Mark D. Hill, and David A. Wood. "A primer on memory consistency and cache coherence." Synthesis Lectures on Computer Architecture 6.3 (2011): 1-212.
+     |  
+     |  Methods defined here:
+     |  
+     |  receive_done(msg=('done',))
+     |      Exit the Cache Controller process.
+     |  
+     |  receive_getM(msg=('getM', 1234), from_='process')
+     |      If current state of addr is:
+     |      I: send data to Req, set Owner to Req/M
+     |      S: send data to Req, send Inv to Sharers, clear Sharers, set Owner to Req/M
+     |      E: forward GetM to Owner, set Owner to Req/M
+     |      M: forward GetM to owner, set Owner to Req
+     |      S^D: Stall or queue. I.E do not interrup the current transaction
+     |  
+     |  receive_getS(msg=('getS', 1234), from_='process')
+     |      If current state of addr is:
+     |      I: send Exclusive data to requestor Cahce, set owner to Requestor and status to E
+     |      S: send data to Req, add Req to Sharers, no change to status
+     |      E: forward GetS to Owner, make Owner sharer, add Req to Sharers, clear Owner/S^D
+     |      M: forward GetS to Owner, make Owner sharer, add Req to Shar- ers, clear Owner/S^D
+     |      S^D: Stall or queue. I.E do not interrup the current transaction
+     |  
+     |  receive_putE_from_nonowner(msg=('putE-from-nonowner', 1234), from_='process')
+     |      If current state of addr is:
+     |      I: send Put-Ack to Req
+     |      S: Remove Req from Sharers, send Put-Ack to Req
+     |      E: send Put-Ack to Req
+     |      M: send Put-Ack to Req
+     |      S^D: remove Req from Sharers, send Put-Ack to Req
+     |  
+     |  receive_putM_from_nonowner(msg=('putM-from-nonowner', 1234), from_='process')
+     |      If current state of addr is:
+     |      I: send Put-Ack to Req
+     |      S: Remove Req from Sharers, send Put-Ack to Req
+     |      E: send Put-Ack to Req
+     |      M: send Put-Ack to Req
+     |      S^D: remove Req from Sharers, send Put-Ack to Req
+     |  
+     |  receive_putM_from_owner(msg=('putM-from-owner', 1234), from_='process')
+     |      If current state of addr is:
+     |      E: send Put-Ack to Req, clear Owner/I
+     |  
+     |  run()
+     |      Run the Directory Controller process.
+     |  
+     |  setup(cache_protocol_objs)
+     |      Inits a dict object to store for each cache line the "status"(eg. Modified/Invalid), 
+     |      "Owner"(Address of the owner cache controller) and "Sharers"(a list of cache controller addresses).
+    
+    class Processor
+     |  Represents a Processor.
+     |  The Processor reads from a trace file and issues "load"/"store" instructions to Cache controller object. The processor will wait till the cache object acknowledges a successful execution. Then it executes another intruction.
+     |  Copied this method from the following, since it is part of the common platform on which the Team will evaluate the protocols.
+     |  Reference: Parag Gupta. https://github.com/karthikbox/cache_coherence/tree/p_template/main.da
+     |  
+     |  Methods defined here:
+     |  
+     |  execute(inst)
+     |  
+     |  receive(msg='completed')
+     |  
+     |  run()
+     |  
+     |  setup(trace, protocol)
+
+FUNCTIONS
+    get_proto_class(name)
+        Input: Cache Coherence algorithm string. Eg: "MESI","MI",etc
+        Returns: Return Class of the Algorithm. Eg: class MESI_CACHE_CONTROLLER, class MESI_DIRECTORY_CONTROLLER
+        Copied this method from the follwing, since it is part of the common platform on which the Team will evaluate the protocols.
+        Reference: Parag Gupta. https://github.com/karthikbox/cache_coherence/tree/p_template/main.da
+    
+    get_traces(trace_file)
+    
+    main()
+        The Driver method for the experiments.
+        Run as:
+        python -m da main.da <num_processors> <protocol_name> <trace_filepath>
+        
+        Outputs the performance statistics.
+        
+        Copied this method from the follwing, since it is part of the common platform on which the Team will evaluate the protocols.
+        Reference: Parag Gupta. https://github.com/karthikbox/cache_coherence/tree/p_template/main.da
+
+DATA
+    ack = ''
+    addr = 1234
+    p = 'process'
+    s = 'set'
+
+
