@@ -1,0 +1,201 @@
+Help on module doc:
+
+NAME
+    doc
+
+FILE
+    /Users/amitkhandelwal/Desktop/async/Project/GitProject/doc.py
+
+DESCRIPTION
+    MOESI cache coherence protocol implementation in DistAlgo
+    based on the online implementation - https://github.com/samuelbritt/CS6290-prj3
+    To implement the protocol in DistAlgo, I am using directory-based protocol logic.
+    Note: The basic structural view for the protocol is same for our group and hence certain classes/methods
+          which are common to all protocols is part of the intial setup. The other members of the group are
+          Parag Gupta, Karthik Reddy, Garima Gehlot and Paul Mathew.
+
+CLASSES
+    MOESI_Cache
+    MOESI_Directory
+    ProcessorReq
+    
+    class MOESI_Cache
+     |  This class denotes the object for the local- cache corresponding a particular processor.
+     |  It contains the main logic for handling 5 states of the protocol and is responsible for the state 
+     |  transitions for the cache data entries.
+     |  The implementation is based on the state transitions as explained in the following mentioned book (Chapter 8).
+     |  Reference : Sorin, Daniel J., Mark D. Hill, and David A. Wood. "A primer on memory consistency and 
+     |  cache coherence." Synthesis Lectures on Computer Architecture 6.3 (2011): 1-212.
+     |  
+     |  Methods defined here:
+     |  
+     |  CacheUpdate(addr)
+     |      We implemented LRU cache for managing the data in the Cache.
+     |      Based on whether the data is present in Cache or not, update the cache Entries.
+     |      If the data is there in the cache and not the head of list, remove from its current location and put at front.
+     |      Otherwise, insert directly at the head of the list.
+     |  
+     |  Transition_from_E_to_I(addr)
+     |      Cache entry will be in E state when Directory entry is in E state. This will cause E->I transition for Directory entry as well as 
+     |      this cache entry with a Put-Ack msg from Directory.
+     |  
+     |  Transition_from_I_to_E(addr)
+     |      If the Directory entry is in state 'I',
+     |      Directory transition from I->E and and cache transition from I->E using the "ExclDatafromDir" msg from Directory class.
+     |  
+     |  Transition_from_I_to_M(addr)
+     |      Processing of the write request.
+     |      If the state of the data entry in Directory is :-
+     |        a) I : Directory transition from I->M and and cache transition from I->M using the "DatafromDirAck0" msg from Directory class.
+     |        b) M : Directory transition from M/E->M with msg forwarding to Owner Cache of data entry, Owner state from M/E -> I and 
+     |               it will reply to Dir and current Cache with "DatafromDirAck0" msg.
+     |        c) S : Directory transition from S->M with Inv broadcast to all the caches having the data entry. Caches will also 
+     |               make transition from S->I and sends Inv-Ack to current Cache with "DatafromOwner" msg.
+     |        d) O : Directory transition from O->M with Inv broadcast to all the caches having the data entry with S state and 
+     |               fwd-GetM message to the previous owner of the data entry. Sharer caches will also  make transition from S->I and
+     |               sends Inv-Ack and Owner cache will send DatafromDirAck0 message to requesting Cache.
+     |  
+     |  Transition_from_I_to_S(addr)
+     |      We have some cases when transitioning from state 'I' based on the state of data in directory class.
+     |      If State of same data in Directory is :-
+     |        a) S : Directory state will remain in S state and I->S transition will occur in Cache.
+     |        b) M : Directory will forward the load msg to Owner Cache of data entry, Owner state from M/E -> S and 
+     |               it will reply to Dir and current Cache with "DatafromOwner" msg.
+     |        c) O : Directory will forward the load msg to Owner Cache of data entry, Owner state from M/O -> O and 
+     |               it will reply to Dir and current Cache with "DatafromOwner" msg.
+     |  
+     |  Transition_from_M_to_I(addr)
+     |      Cache entry will be in M state when Directory entry is in M state. This is cause M->I transition for Directory entry as well as 
+     |      this cache entry with a Put-Ack msg from Directory.
+     |  
+     |  Transition_from_O_to_I(addr)
+     |      Cache entry will be in O state when Directory entry is in O state. This is cause O->I/S transition for Directory entry and O->I 
+     |      for the cache entry with a Put-Ack msg from Directory.
+     |  
+     |  Transition_from_O_to_M(addr)
+     |      Cache entry will be in O state when Directory entry is in O state. This will cause Directory to send Inv request to all sharer caches.
+     |      Sharer caches will make S->I transition and send Inv-Ack to requesting cache. Directory will also send AckCount msg to requesting cache 
+     |      which will help the requesting cache to wait till AckCount.
+     |  
+     |  Transition_from_S_to_I(addr)
+     |      Cache entry will be in S state when Directory entry is in S state. This is cause S->I/S transition for Directory entry and S->I 
+     |      for the cache entry with a Put-Ack msg from Directory.
+     |  
+     |  Transition_from_S_to_M(addr)
+     |      Two Cases :-
+     |        a) Directory transition from S->M with Inv broadcast to all the caches having the data entry. Caches will also 
+     |           make transition from S->I and sends Inv-Ack to current Cache with "DatafromOwner" msg.
+     |        b) Directory transition from O->M with Inv broadcast to all the caches having the data entry with S state and 
+     |           fwd-GetM message to the previous owner of the data entry. Sharer caches will also  make transition from S->I and
+     |           sends Inv-Ack and Owner cache will send DatafromDirAck0 message to requesting Cache.
+     |  
+     |  receive(msg=('done',))
+     |  
+     |  receive_AckCount(msg=('AckCount', ''))
+     |      The Directory will send the Count of the acks that requesting cache should receive when O->M transition happens and 
+     |      all sharers need to Invalidate their data entries
+     |  
+     |  receive_DatafromOwner(msg='DatafromOwner', from_='')
+     |      Data message from the other caches which are currently the having the data entry in E or M state
+     |  
+     |  receive_ExclDatafromDir(msg=('ExclDatafromDir',), from_='')
+     |      Exclusive data msg from the Directory to cache when none of the caches contain requesting data entry, hence I->E is done
+     |  
+     |  receive_Inv(msg=('Inv', ''), from_='')
+     |      Invalidating request msg from directory
+     |  
+     |  receive_InvAck(msg=('Inv-Ack', ''))
+     |      The sharer of a cache entry will send invalidate ack to requesting cache for it to make successful I/S->M transition
+     |  
+     |  receive_fwdGetM(msg='fwd-GetM', from_='')
+     |      Directory forwarded msg for modifying data entry to caches having data currently in M or E state
+     |  
+     |  receive_fwdGetS(msg='fwd-GetS', from_='')
+     |      Directory forwarded msg for sharing of data entry to caches having data currently in M or E state
+     |  
+     |  receive_load(msg=('load', '', ''), from_='')
+     |      Load request from the processor
+     |  
+     |  receive_store(msg=('store', '', ''), from_='')
+     |      Store request from the Processor
+     |  
+     |  run()
+     |  
+     |  setup(mem_ctrl_protocol_obj, other_protocol_obj, size)
+    
+    class MOESI_Directory
+     |  MOESI directory controller class.
+     |  This class simulates the shared directory between caches and is responsible for managing data in the memory.
+     |  This is a single process which handles all access requests from all the processor caches.
+     |  It keeps track of all data entries and their states corresponding to memory.
+     |  
+     |  Methods defined here:
+     |  
+     |  receive(msg=('done',))
+     |  
+     |  receive_getM(msg='getM')
+     |      Write Request from caches
+     |  
+     |  receive_getS(msg='getS')
+     |      Read Request from caches
+     |  
+     |  receive_putE(msg='putE')
+     |      Write-back Request from caches when cache needs to evict this data entry (no write to memory)
+     |  
+     |  receive_putM(msg='putM')
+     |      Write-back Request with data from caches when cache needs to evict this data entry (no write to memory). 
+     |      Will transition from M->O state
+     |  
+     |  receive_putO(msg='putO')
+     |      Write-back Request with data from caches when cache needs to evict this data entry (write to memory) 
+     |      which can make S->S/I transition.
+     |  
+     |  receive_putS(msg='putS')
+     |      Write-back Request from caches when cache needs to evict this data entry (no write to memory) 
+     |      which can make S->S/I transition.
+     |  
+     |  run()
+     |  
+     |  setup(cache_protocol_objs)
+    
+    class ProcessorReq
+     |  Processor Class:
+     |  This class simulates the read/write requests to a particular processor.
+     |  implementation wise, it makes read/write requests to cache controller one at a time.
+     |  This class in generic to all protocols being implemented by other group members.
+     |  
+     |  Methods defined here:
+     |  
+     |  execute(inst)
+     |  
+     |  receive(msg='completed')
+     |  
+     |  run()
+     |  
+     |  setup(trace, protocol)
+
+FUNCTIONS
+    ReadTraces(trace_file)
+        Temporary implementation to simulate access requests to a processor.
+        Generic to all protocol implementations.
+    
+    createProtocolObjects(name)
+    
+    main()
+        Main driver function to simulate the running behaviour of cache coherence protocol with 
+        given number of processors, protocol name and trace file path.
+        Command should be passed in the following way :
+        dar main.da 'n' "Protocol" "Path",
+        where n - # of processors ( local-caches)
+              Protocol - Protocol Name (MI/MSI/MESI/MOSI/MOESI)
+              Path - Path of the trace file to run with
+
+DATA
+    CACHE_SIZE = 512
+    ENOTSUPP = 2
+    addr = ''
+    d = ''
+    p = ''
+    s = ''
+
+
