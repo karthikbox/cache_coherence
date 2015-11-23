@@ -29,6 +29,7 @@ class MESI_CACHE_CONTROLLER():
   Cache controller makes local and remote transitions depending on whether data is present in the cache or not.
   Each Cache controller communicates directly with Directory Controller.
   Reference: Sorin, Daniel J., Mark D. Hill, and David A. Wood. "A primer on memory consistency and cache coherence." Synthesis Lectures on Computer Architecture 6.3 (2011): 1-212.
+  Amit Khandelwal. https://github.com/karthikbox/cache_coherence/blob/moesi_protocol/MOESI_documentation.txt. Discussed design choices with Amit, but wrote the API independently. Since MOESI and MESI are similar protocols, some of the API, especially state machine transitions may look similar.
   """
   
   def setup(dir_ctrl_obj):
@@ -191,6 +192,7 @@ class MESI_DIRECTORY_CONTROLLER():
   Encapsulates a the methods and data of a Directory Controller object.
   Directory Controller tracks the status of each Cache Controller.
   Reference: Sorin, Daniel J., Mark D. Hill, and David A. Wood. "A primer on memory consistency and cache coherence." Synthesis Lectures on Computer Architecture 6.3 (2011): 1-212.
+  Amit Khandelwal. https://github.com/karthikbox/cache_coherence/blob/moesi_protocol/MOESI_documentation.txt. Discussed design choices with Amit, but wrote the API independently. Since MOESI and MESI are similar protocols, some of the API, especially state machine transitions may look similar.
   """
 
   
