@@ -1,14 +1,43 @@
 """
-MSI cache coherence protocol implementation in DistAlgo
-based on the online implementation - https://github.com/samuelbritt/CS6290-prj3
+CSE535 - Cache Coherence Project.
 
+MSI cache coherence protocol implementation in DistAlgo by Parag Gupta.
 To implement the protocol in DistAlgo, we are using a combination of snooping 
 protocol logic and directory protocol logic.
+Certain parts of the implementation are same for our group as they are generic 
+classes/methods which are common to all protocols and is part of the intial 
+setup. The tead members of the group are:
+    Parag Gupta (me)
+    Karthik Reddy
+    Garima Gehlot
+    Amit Kandelwal
+    Paul Mathews.
 
-Note: Certain parts of the implementation are same for our group as they are generic classes/methods
-      which are common to all protocols and is part of the intial setup. The other members of the group are
-      Parag Gupta, Karthik Reddy, Garima Gehlot and Amit Kandelwal. I have mentioned the author/source in 
-      the comments section of the appropriate classes/methods
+Running :
+  python -m da main.da <num_processors> MSI <tracefile>
+
+Reference added wherever necessary.
+
+Reference implementation - 
+[1] https://github.com/samuelbritt/CS6290-prj3
+
+The initial setup branch (developed by me) on which the protocols are develop: 
+[2] https://github.com/karthikbox/cache_coherence/blob/p_template/main.da
+
+MI protocol implementation by Paul Mathews on top of which MSI is implemented:
+[3] https://github.com/karthikbox/cache_coherence/blob/mi_protocol/main.da,
+Paul Mathews
+
+Important note:
+===============
+MI protocol API documentation by Paul Mathews, taken as base for 
+MSI documentation: 
+[4] https://github.com/karthikbox/cache_coherence/blob/mi_protocol/msi_protocol.py
+, Paul Mathews
+
+Protocol State machine reference from Wikipedia:
+[5] https://en.wikipedia.org/wiki/MSI_protocol
+[6] http://wiki.expertiza.ncsu.edu/index.php/Chp8_my
 """
 
 ENOTSUPP = 2
@@ -19,10 +48,10 @@ s = ""
 
 def get_proto_class(name):
   """
-  return the corresponding protocol class name and controller name
-  generic to all protocol implementations
-  Author : Parag Gupta (https://github.com/karthikbox/cache_coherence/tree/p_template/main.da)
+    Returns the corresponding protocol class and controller class based on 
+    string class name.
   """
+
   if name == "MSI":
     return (eval("MSI_PROTO_CACHE"), eval("MSI_PROTO_CTRL"))
   else:
@@ -37,157 +66,196 @@ class MSI_PROTO_CACHE():
       - Each processor will have a protocol cache process corresponding to it which
         will maintain that processor's cache memory as well as maintain cache coherence
       - Inherits from the process class in DistAlgo
+      - This class is based on MI_PROTO_CACHE by Paul Mathews [3][4]
   """
+
   def setup(mem_ctrl_protocol_obj, other_protocol_obj, size):
     """
-      Initialize the cache memory and set the wait flags to false
+      Initialize the cache memory and set the wait flags to false.
+      Input: (Memory controller protocol object,
+              Protocol objects simulating other caches,
+              Size of the cache)
+      Output: False
     """
-    self.memory = []
-    self.get_from_caches = False
-    self.wait_for_caches = False
-    self.wait_for_memory = False
-    
+    pass 
+
   def run():
-    await(False)
+    """ 
+      Run loop for the process
+    """
+    pass
 
   def reorder_cache(addr):
     """
-      LRU Caching logic
+      Implements LRU Caching logic 
+      Reorders the cache on each addr access
     """
-
-    """ Check if the addr is present in the list """
-    if (1, addr) in self.memory: 
-      self.memory.remove((1, addr))
-    else:
-      """ Check if the cache is full """
-      if len(self.memory) == size:
-        print("Cache is full")
-        (state, last_addr) = self.memory.pop()
-        if state == 1:
-          send(('flush', last_addr), to=mem_ctrl_protocol_obj)
-    
-    self.memory.insert(0, (1, addr))
-
-  def get_addr(addr):
-    """ 
-      The load/store address is not in the cache, try
-          (1) snoop other caches 
-          (2) if (1) fails then get from memory 
+    pass
+  
+  def receive_load(msg=('load',addr, p), from_=s):
     """
-    wait_for_caches = False;
-    send(('get', addr), to=other_protocol_obj)
-    await(wait_for_caches)
-    if not get_from_caches:
-      wait_for_memory = False
-      send(('get', addr), to=mem_ctrl_protocol_obj)
-      await(wait_for_memory)
-
-    """ Receive data from cache/memory, invalidate all other copies """
-    get_from_caches = False
-    send(('invalidate', addr), to=other_protocol_obj)
-
-  def receive_get_address(msg= ('get',addr), from_= p):
+      Receive load request from processor.
+      Load address into cache and send back acknowledgement.
+      Logic:
+        Addr in 'M' state: supply data
+        Addr in 'S' state: supply data
+        Addr in 'I' state: 
+          Other cache have data in 'M'/'S' state: 
+            Gets the data from owner
+            Goto 'S' state
+          Else 
+            Gets data from Memory.
+            Goto 'S' State
     """
-      Received request for address from another cache, check local
-      cache and if addr is present, invalidate it and send back the value
+    pass
+ 
+  def receive_load_forward(msg= ('loadF', addr), from_= p):
     """
+      Receive load request from another caches.
+      Logic:
+        Addr in 'M' state: 
+          Write-back to Memory
+          Goto 'S' state
+          Supply data
+        
+        Addr in 'S' state:
+          Supply data
 
-    """ Add time delay here to mimic cache-to-cache latency """
-    time.sleep(1)
-    print("Cache request for address: ", addr)
-    if (1, addr) in self.memory:
-      """ invalidate cache block """
-      new_cache = [(0,addr) if x==(1,addr) else x for x in self.memory]
-      self.memory = new_cache
-      send(('found_in_cache'), to=p)
-    else:
-      send(('not_found_in_cache'), to=p)
+        Addr in 'I' state:
+          reply not_found
+    """
+    pass
 
+ 
+  def receive_store(msg=('store',addr, p), from_=s):
+    """
+      Received store request from processor.
+      Store value into cache and send back acknowledgement.
+      Logic:
+        Addr in 'M' state: 
+          Modify locally
+
+        Addr in 'S' state: 
+          Notify other caches to evict addr (tranx from 'S' to 'I')
+          Modify Locally
+          Goto to 'M' state 
+
+        Addr in 'I' state:
+          Get data from 'M'/'S' cache and notify to evict it.
+          If not get from memory.
+          Modify locally
+          Goto to 'M' state
+    """
+    pass
+  
+  def receive_store_forward(msg=('storeF',addr, p), from_=s):
+    """
+      Received store forward request from other caches.
+      Logic: 
+        Addr in 'M' state: 
+          Write-back to main memory.
+          Goto 'I' state
+          Supply data
+
+        Addr in 'S' state:
+          Goto 'I' state
+          Supply Data
+
+        Addr in 'I' state:
+          Reply not_found
+    """
+    pass
+
+  def tranx_M_to_S(addr):
+    """
+      Transition cache line from Modified to Shared state
+    """
+    pass
+
+  def tranx_M_to_I(addr):
+    """
+      Transition cache line from Modified to Invalid state
+    """
+    pass
+
+  def tranx_S_to_M(addr):
+    """
+      Transition cache line from Shared to Modified state
+    """
+    pass
+  
+  def tranx_S_to_I(addr):
+    """
+      Transition cache line from Shared to Invalid state
+    """
+    pass
+  
+  def tranx_I_to_M(addr):
+    """
+      Transition cache line from Invalid to Modified state
+    """
+    pass
+  
+  def tranx_I_to_S(addr):
+    """
+      Transition cache line from Invalid to Shared state
+    """
+    pass
+  
   def receive_invalidate_block(msg= ('invalidate', addr), from_= p):
     """
-      Invalidate the cache block containing the requested address if present in our cache
+      Invalidate addr if present in our cache.
+      Goto 'I' state.
     """
-    """ invalidate cache block """
-    new_cache = [(0,addr) if x==(1,addr) else x for x in self.memory]
-    self.memory = new_cache
+    pass
 
   def receive_data_from_other_cache(msg=('found_in_cache')):
     """
-      Received "found in cache" acknowledgement which basically denotes we have found 
+      Received "found in cache" ack which basically denotes we have found 
       the requested addr in another cache and received the value from that cache.
     """
-    print("Addr received from another cache")
-    get_from_caches = True
-    wait_for_caches = True
-
+  
   def receive_snoop_caches(msg=('located_in_cache', addr)):
     """
       This logic is put in to handle the race condition when two caches are requesting for the same
       address in memory. When a cache receives this message, it means that the address it had requested the memory
       controller for has already been loaded by another cache and to snoop the other caches again to get
-      the updated address.
+      the updated address. 
     """
-    wait_for_memory = True
-    get_addr(addr)
+    pass
 
-  def receive_not_found_in_cache(msg=('not_found_in_cache')):
+
+  def receive_not_found_in_caches(msg=('not_found_in_cache')):
     """
       The requested address/data is not located in a cache. When the number of such messages received
       equals the number of other caches then its safe to assume that the address/data is not present in
-      any of the other caches and we need to go to the memory controller
+      any of the other caches and we need to go to the memory controller 
     """
-    if len(setof(a, received(('not_found_in_cache'), from_ =a))) == len(other_protocol_obj):
-      print("Addr not found in the other caches")
-      wait_for_caches = True 
+    pass
 
   def receive_data_from_memory(msg=('found_in_memory')):
     """
-      We have received the requested address/data from the memory controller
+      We have received the requested address/data from the memory controller 
     """
-    print("Addr received from memory")
-    wait_for_memory = True
+    pass
 
   def receive_not_found_in_memory(msg=('not_found_in_memory')):
     """
-      Address not found in memory, ideally should never happen
+      Address not found in memory, ideally should never happen 
     """
-    print("Addr not found in memory")
-    wait_for_memory = True
+    pass 
 
-  def receive_load(msg=('load',addr, p), from_=s):
-    """
-      Received load request from processor, load address into cache and send back acknowledgement
-    """
-    print("Received LOAD request for addr %s" % addr);
-    if (1,addr) not in self.memory:
-      """ Cache miss logic """
-      get_addr(addr)
-    self.reorder(addr)
-    print("Sending Ack")
-    send('completed', to=s)
-  
-  def receive_store(msg=('store',addr, p), from_=s):
-    """
-      Received store request from processo, store value into cache and send back acknowledgement
-    """
-    print("Received STORE request for addr %s" % addr);
-    if (1,addr) not in self.memory:
-      """ Cache miss logic """
-      get_addr(addr)
-    self.reorder(addr)
-    print("Sending Ack")
-    send('completed', to=s)
-  
+
   def receive_done(msg= ('done',)):
     """
-      Exit the cache process on a done message
+      Exit the cache process on a done message 
     """
-    print("Cache Exiting\n")
-    exit()
+    pass
+
 
 class MSI_PROTO_CTRL():
   """
-    MSI Memory Controller Class:
+    MSI Memory Controller Class: 
       - This class simulates the system bus and memory controller
       - keeps track of all addresses in the caches
       - A standalone process which serves memory requests from the caches
@@ -195,37 +263,30 @@ class MSI_PROTO_CTRL():
   """
   def setup(cache_protocol_objs):
     """
-    Setup a hashmap for tracking the addresses in the caches
+      Simulate a dictionary for tracking the addresses in the caches 
     """
-    self.memory_ref = dict()
-  
+    pass 
+
   def run():
-    await(False)
-  
+    pass
+
   def receive_get_address(msg= ('get',addr), from_= p):
     """
-    Retrieve the requested address from memory and send it back to the cache
+    Retrieve the requested address from memory and send it back to the cache 
     """
-    """ Add time delay here to mimic cache-to-memory latency """
-    time.sleep(3)
-    if addr in self.memory_ref and self.memory_ref[addr] > 0:
-      send(('located_in_cache', addr), to=p)
-    else:
-      self.memory_ref[addr] = 1
-      send(('found_in_memory'), to=p)
+    pass
 
   def receive_write_back_cache_block(msg= ('flush', addr)):
     """
-    Flush the corresponding address back to memory
+    Flush the corresponding address back to memory 
     """
-    self.memory_ref[addr] = 0
+    pass
+
 
   def receive(msg= ('done',)):
     """
-      Exit the memory controller process on a done message
+      Exit the memory controller process on a done message 
     """
-    print("CTRL Exiting\n")
-    exit()
 
 class Processor():
     """

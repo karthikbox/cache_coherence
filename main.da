@@ -12,7 +12,7 @@ def get_proto_class(name):
 
 class MSI_PROTO_CACHE(process):
   """
-    MSI Protocol class:
+    MSI Protocol class: By Parag Gupta
   """
   
   def setup(mem_ctrl_protocol_obj, other_protocol_obj, size):
