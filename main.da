@@ -21,10 +21,6 @@ class MI_PROTO_CACHE(process):
     self.pending_actions=[]
     self.current_state="READY"
     
-    self.get_from_caches = False
-    self.wait_for_caches = False
-    self.wait_for_memory = False
-    self.get_from_memory = False
     
   def run():
     while(1):
@@ -37,7 +33,7 @@ class MI_PROTO_CACHE(process):
     #deque request
     (inst,addr,to_process)=pending_actions.pop()
     #possible instructions are : loads,stores, invlalidate
-    if(inst=='invlalidate'):
+    if(inst=='invalidate'):
       perform_invalidation(addr,to_process)
     elif inst=='load':
       perform_load(addr,to_process)
@@ -66,7 +62,6 @@ class MI_PROTO_CACHE(process):
       elif res[0][1] in ['SHARED','MODIFIED','EXCLUSIVE']:
         # since state is ANY OF THE ABOVE, update lru and return the value
         update_lru_position_of(res[0])
-        return res[0][2]
       else:
         assert False, "invalid state %r" % res[0][2]
     else:
@@ -82,6 +77,7 @@ class MI_PROTO_CACHE(process):
     current_state='READY'
     print("Sending Ack")
     send('completed', to=to_process)
+    print("value returned to processor =%r" % memory[0][2])
 
   def perform_store(addr,to_process):
     """ store the value of a particular address in the cache. """
@@ -140,6 +136,8 @@ class MI_PROTO_CACHE(process):
 # stall(invalidate,replacement)
   
   def receive(msg=('exclusive_data_from_dir',addr,val_rvd), from_=s):
+#     print ("addr rcvd=%r   addr required=%r" %(addr,memory[0][0]))
+#     print("state=%r  mem state=%r" %(current_state,memory[0][1]))
     if current_state=='INVALID_SHARED_DATA' and addr==memory[0][0]:
       # move to EXCLUSIVE state, update the state in memory for the address
       current_state='EXCLUSIVE'
@@ -147,7 +145,7 @@ class MI_PROTO_CACHE(process):
       memory.insert(0,(addr_t,current_state,val_rvd))
       assert state_t=='INVALID_SHARED_DATA','memory state corrupted'
     else:
-      assert False, "received out-of-state message. Should not happen."
+      assert False, "received out-of-state message. Should not happen. exclusive_data_from_dir"
 
   def receive(msg=('data_from_dir',ack,addr,val_rvd), from_=s):
     if current_state=='INVALID_SHARED_DATA' and addr==memory[0][0] and ack==0:
@@ -157,7 +155,7 @@ class MI_PROTO_CACHE(process):
       memory.insert(0,(addr_t,current_state,val_rvd))
       assert state_t=='INVALID_SHARED_DATA','memory state corrupted'
     else:
-      assert False, "received out-of-state message. Should not happen."
+      assert False, "received out-of-state message. Should not happen. data_from_dir"
 
   def receive(msg=('data_from_owner',addr,val_rvd), from_=s):
     if current_state=='INVALID_SHARED_DATA' and addr==memory[0][0]:
@@ -167,13 +165,20 @@ class MI_PROTO_CACHE(process):
       memory.insert(0,(addr_t,current_state,val_rvd))
       assert state_t=='INVALID_SHARED_DATA','memory state corrupted'
     else:
-      assert False, "received out-of-state message. Should not happen."
+      assert False, "received out-of-state message. Should not happen. data_from_owner"
   
 
-  def receive(msg=('invalidate',addr), from_=s):
-    # state is INVALID_SHARED_DATA, then stall it
-    pending_actions.append('invalidate',addr)
-    pass
+  def receive(msg=('invalidate',addr,p), from_=s):
+    # state is INVALID_SHARED_DATA, then stall it, p is original cache id
+    pending_actions.append('invalidate',addr,p)
+
+  def receive(msg=('Fwd_GetS',addr,p), from_=s):
+    # state is INVALID_SHARED_DATA, then stall it, p is original cache id
+    pending_actions.append('fwd_gets',addr,p)
+
+  def receive(msg=('Fwd_GetM',addr,p), from_=s):
+    # state is INVALID_SHARED_DATA, then stall it, p is original cache id
+    pending_actions.append('fwd_getm',addr,p)
 
 
   def receive(msg=('load',addr, p), from_=s):
@@ -202,25 +207,105 @@ class MI_PROTO_CACHE(process):
 
 class MI_PROTO_CTRL(process):
   def setup(cache_protocol_objs):
-    self.memory_ref = dict()
-  
+    self.pending_actions=[]
+    self.memory = dict()
+
   def run():
-    await(False)
+    while(1):
+      await(len(self.pending_actions)>0)
+      #queue has some pending request and  state is READY
+      #process request
+      processRequest()
+
   
-  def receive(msg=('msg')):
-    print("recevied msg\n")
+  def processRequest():
+    # deque request
+    t=pending_actions.pop()
+    #possible instructions are : loads,stores, invlalidate
+    # pending_actions tuple format : (inst,addr,to_process,data)
+    # check if addr is in memory, else add it to memory with INVALID state
+    if(t[1] not in memory):
+      memory[t[1]]=['INVALID',self.id,[],555]
 
-  def receive(msg= ('get',addr), from_= p):
-    """ Add time delay here to mimic cache-to-memory latency """
-    time.sleep(3)
-    if addr in self.memory_ref and self.memory_ref[addr] > 0:
-      send(('located_in_cache', addr), to=p)
+    if(t[0]=='GetS'):
+      perform_getS(t[1],t[2])
+#     elif(t[0]=='GetM'):
+#       perform_getM(t[1],t[2])
+#     elif(t[0]=='PutS'):
+#       perform_putS(t[1],t[2])
+#     elif(t[0]=='PutM'):
+#       perform_putM(t[1],t[2],t[3])
+#     elif(t[0]=='PutE'):
+#       perform_putE(t[1],t[2])
     else:
-      self.memory_ref[addr] = 1
-      send(('found_in_memory'), to=p)
+      assert False,'invalid request in pending actions queue'
 
-  def receive(msg= ('flush', addr)):
-    self.memory_ref[addr] = 0
+
+  def perform_getS(addr,to_process):
+    # key -value : memory_addr, [state,owner,[sharers],value]
+    assert addr in memory, "address %r not in memory" % addr
+    if memory[addr][0]=='INVALID':
+      # send exclusive data to req, set owner to req, set state to exclusive
+      send(('exclusive_data_from_dir',addr,memory[addr][3]),to=to_process)
+      memory[addr][1]=to_process
+      memory[addr][0]="EXCLUSIVE"
+    elif memory[addr][0]=='SHARED':
+      # send data to req with ack=0, add req to sharers list, no change to state
+      memory[addr][2].append(to_process)
+      send(('data_from_dir',0,addr,memory[addr][3]),to=to_process)
+    elif memory[addr][0]=='EXCLUSIVE':
+      # forward GetS to owner, make owner as sharer, clear owner
+      # add req to sharers, make state as SHARED_DATA
+      send(('Fwd_GetS',addr,to_process),to=memory[addr][1])
+      memory[addr][2].append(memory[addr][1])
+      memory[addr][2].append(to_process)
+      memory[addr][1]=None
+      memory[addr][0]='SHARED_DATA'
+      # await for data from the exclusive owner ???
+    elif memory[addr][0]=='MODIFIED':
+      # forward getS to owner, maker onwer sharer, clear owner
+      # add req to shareers, make state as SHARED_DATA
+      send(('Fwd_GetS',addr,to_process),to=memory[addr][1])
+      memory[addr][2].append(memory[addr][1])
+      memory[addr][2].append(to_process)
+      memory[addr][1]=None
+      memory[addr][0]='SHARED_DATA'
+      # await for data from the MODIFIED owner 
+      await(memory[addr][0]=='SHARED')
+    else:
+      assert False, 'invalid memory state'
+
+  def receive(msg=('GetS',addr), from_=p):
+    """ Put it in pending queue"""
+    pending_actions.append(('GetS',addr,p))
+
+  def receive(msg= ('GetM',addr), from_= p):
+    """ Put it in pending queue"""
+    pending_actions.append(('GetM',addr,p))
+
+  def receive(msg= ('PutS',addr), from_= p):
+    """ Put it in pending queue"""
+    pending_actions.append(('PutS',addr,p))
+
+  def receive(msg= ('PutM',addr,data), from_= p):
+    """ Put it in pending queue"""
+    pending_actions.append(('PutM',addr,p,data))
+
+  def receive(msg= ('PutE',addr), from_= p):
+    """ Put it in pending queue"""
+    pending_actions.append(('PutE',addr,p))
+
+  def receive(msg= ('data',addr,data), from_= p):
+    """ Do not queue"""
+    # receiveing data, that means, addr should be in memory
+    assert addr in memory, "addr=%r not present in DC memory" % addr
+    assert current_state=='SHARED_DATA','invalid data received'
+    # key -value : memory_addr, [state,owner,[sharers],value]
+    assert memory[addr][0]=='SHARED_DATA','invalid memory state'
+    # update value, update state to 'SHARED'
+    memory[addr][3]=data
+    memory[addr][0]='SHARED'
+
 
   def receive(msg= ('done',)):
     print("CTRL Exiting\n")
