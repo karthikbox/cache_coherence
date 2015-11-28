@@ -120,9 +120,9 @@ class MI_PROTO_CACHE(process):
     assert memory[0][0]==addr, "newly loaded memory invariant failed for addr,state= %r, %r" % (memory[0][0],memory[0][1])
     assert memory[0][1]!='INVALID', "newly loaded memory invariant failed for addr,state= %r, %r" % (memory[0][0],memory[0][1])    
     current_state='READY'
-    print("Sending Ack")
+    output("Sending Ack")
     send('completed', to=to_process)
-    print("value returned to processor =%r" % memory[0][2])
+    output("value returned to processor =%r" % memory[0][2])
 
   def perform_store(addr,to_process,data):
     """ store the value of a particular address in the cache. """
@@ -162,9 +162,9 @@ class MI_PROTO_CACHE(process):
     assert memory[0][0]==addr, "newly loaded memory invariant failed for addr,state= %r, %r" % (memory[0][0],memory[0][1])
     assert memory[0][1]=='MODIFIED', "newly loaded memory invariant failed for addr,state= %r, %r" % (memory[0][0],memory[0][1])    
     current_state='READY'
-    print("Sending Ack")
+    output("Sending Ack")
     send('completed', to=to_process)
-    print("value written in cache =%r" % memory[0][2])
+    output("value written in cache =%r" % memory[0][2])
 
   
   def move_I_to_SorE(addr):
@@ -391,7 +391,7 @@ class MI_PROTO_CACHE(process):
 
   def receive(msg=('load',addr, p), from_=s):
     self.pending_actions.append(('load',addr, s))
-    print("Received LOAD request for addr %s" % addr)
+    output("Received LOAD request for addr %s" % addr)
     # if (1,addr) not in self.memory:
     #   """ Cache miss logic """
     #   get_addr(addr)
@@ -401,7 +401,7 @@ class MI_PROTO_CACHE(process):
   
   def receive(msg=('store',addr, p, data), from_=s):
     self.pending_actions.append(('store',addr, s, data))
-    print("Received STORE request for addr %s" % addr);
+    output("Received STORE request for addr %s" % addr);
 #    if (1,addr) not in self.memory:
 #      """ Cache miss logic """
 #      get_addr(addr)
@@ -471,6 +471,7 @@ class MI_PROTO_CTRL(process):
       memory[addr][1]=None
       memory[addr][0]='SHARED_DATA'
       # await for data from the exclusive owner ???
+      await(memory[addr][0]=='SHARED')
     elif memory[addr][0]=='MODIFIED':
       # forward getS to owner, maker onwer sharer, clear owner
       # add req to shareers, make state as SHARED_DATA
@@ -487,7 +488,7 @@ class MI_PROTO_CTRL(process):
   def perform_getM(addr,to_process):
     # key -value : memory_addr, [state,owner,[sharers],value]
     assert addr in memory, "address %r not in memory, current memory state %r " % (addr,memory[addr][0]) 
-    print("current memory state in GetM : ", memory[addr][0])
+    output("addr_rcvd=%r, state in memory=%r"%(addr,memory[addr][0]))
     if memory[addr][0]=='INVALID':
       # send data_from_dir with ack=0 to req, set owner to req, set state MODIFIED
       send(('data_from_dir',0,addr,memory[addr][3]),to=to_process)
@@ -512,7 +513,7 @@ class MI_PROTO_CTRL(process):
       send(('Fwd_GetM',addr,to_process),to=memory[addr][1])
       memory[addr][1]=to_process
     else:
-      assert False, 'invalid memory state. getM'
+      assert False, 'invalid memory state for addr_rcvd=%r,state in memory=%r'%(addr,memory[addr][0])
 
 
   def receive(msg=('GetS',addr), from_=p):
