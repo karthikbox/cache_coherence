@@ -51,7 +51,7 @@ class MI_PROTO_CACHE(process):
 
   def perform_fwd_getm(addr,to_process):
     res=[x for x in memory if x[0]==addr]
-    assert len(res)>0,'address not in memory. Fwd_getS. addr_rvd=%r' %addr
+    assert len(res)>0,'address not in memory. Fwd_getM. addr_rvd=%r' %addr
     assert res[0][1]!='INVALID','address in INVALID state Fwd_getS.'
     assert res[0][1]!='SHARED','address in SHARED state Fwd_getS.'
     # handle EXCLUSIVE and MODIFIED both
@@ -74,7 +74,7 @@ class MI_PROTO_CACHE(process):
     # handle EXCLUSIVE and MODIFIED both
     # send data to req and DC, set state to SHARED
     send(('data_from_owner',res[0][0],res[0][2]),to=to_process)
-    send(('data_from_owner',res[0][0],res[0][2]),to=dir_ctrlr)
+    send(('data',res[0][0],res[0][2]),to=dir_ctrlr)
     # get index of the mem tuple from memory
     # pop that tyuple, insert new tuple at index again, new tuple's state changed to SHARED
     # mem tuple will not be at the head of the LRU
@@ -230,11 +230,11 @@ class MI_PROTO_CACHE(process):
       # do nothing
       pass
     else:
-      # in IMA state, wait till modified state(receive all acks)
+      # in SMA state, wait till modified state(receive all acks)
       await(current_state=='MODIFIED')
     # write data
     addr_t,state_t,val_t=memory.pop(0)
-    assert state_t==current_state,'memory state corrupted. ItoM'
+    assert state_t==current_state,'memory state corrupted. StoM'
     memory.insert(0,(addr_t,current_state,data))
 
   def move_E_to_M(addr,data):
@@ -482,11 +482,12 @@ class MI_PROTO_CTRL(process):
       # await for data from the MODIFIED owner 
       await(memory[addr][0]=='SHARED')
     else:
-      assert False, 'invalid memory state'
+      assert False, 'invalid memory state. getS'
 
   def perform_getM(addr,to_process):
     # key -value : memory_addr, [state,owner,[sharers],value]
-    assert addr in memory, "address %r not in memory" % addr
+    assert addr in memory, "address %r not in memory, current memory state %r " % (addr,memory[addr][0]) 
+    print("current memory state in GetM : ", memory[addr][0])
     if memory[addr][0]=='INVALID':
       # send data_from_dir with ack=0 to req, set owner to req, set state MODIFIED
       send(('data_from_dir',0,addr,memory[addr][3]),to=to_process)
@@ -511,7 +512,7 @@ class MI_PROTO_CTRL(process):
       send(('Fwd_GetM',addr,to_process),to=memory[addr][1])
       memory[addr][1]=to_process
     else:
-      assert False, 'invalid memory state'
+      assert False, 'invalid memory state. getM'
 
 
   def receive(msg=('GetS',addr), from_=p):
@@ -538,9 +539,9 @@ class MI_PROTO_CTRL(process):
     """ Do not queue"""
     # receiveing data, that means, addr should be in memory
     assert addr in memory, "addr=%r not present in DC memory" % addr
-    assert current_state=='SHARED_DATA','invalid data received'
+    #assert current_state=='SHARED_DATA','invalid data received'
     # key -value : memory_addr, [state,owner,[sharers],value]
-    assert memory[addr][0]=='SHARED_DATA','invalid memory state'
+    assert memory[addr][0]=='SHARED_DATA','invalid memory state, data received'
     # update value, update state to 'SHARED'
     memory[addr][3]=data
     memory[addr][0]='SHARED'
@@ -587,7 +588,7 @@ def get_traces(trace_file):
 
           [
            ('r', '0x11111111'),
-           ('w', '0x11111114',22),
+         #  ('w', '0x11111114',22),
            ('w', '0x11111111',25)
           ],
 
