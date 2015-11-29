@@ -37,7 +37,7 @@ class MI_PROTO_CACHE(process):
     addr=t[1]
     to_process=t[2]
     #possible instructions are : loads,stores, invalidate
-    if inst=='invalidate':
+    if inst=='inv':
       perform_invalidation(addr,to_process)
     elif inst=='load':
       perform_load(addr,to_process)
@@ -61,13 +61,14 @@ class MI_PROTO_CACHE(process):
     # pop that tyuple, insert new tuple at index again, new tuple's state changed to SHARED
     # mem tuple will not be at the head of the LRU
     index=memory.index(res[0])
-    addr_t,state_t,val_t=memory.pop(index)
-    memory.insert(index,(addr_t,'INVALID',val_t))
+    t=memory.pop(index)
+    memory.insert(index,(t[0],'INVALID',t[2]))
 
 
 
   def perform_fwd_gets(addr,to_process):
     res=[x for x in memory if x[0]==addr]
+    output(memory)
     assert len(res)>0,'address not in memory. Fwd_getS. addr_rvd=%r' %addr
     assert res[0][1]!='INVALID','address in INVALID state Fwd_getS.'
     assert res[0][1]!='SHARED','address in SHARED state Fwd_getS.'
@@ -79,15 +80,28 @@ class MI_PROTO_CACHE(process):
     # pop that tyuple, insert new tuple at index again, new tuple's state changed to SHARED
     # mem tuple will not be at the head of the LRU
     index=memory.index(res[0])
-    addr_t,state_t,val_t=memory.pop(index)
-    memory.insert(index,(addr_t,'SHARED',val_t))
+    t=memory.pop(index)
+    memory.insert(index,(t[0],'SHARED',t[2]))
     
 
 
 
   def perform_invalidation(addr,to_process):
-    assert current_state=='READY', "state is not in READY state but in %r" % current_state
-    pass
+    """ Invalidate memory, send Inv_Ack to the caches."""
+    # state should be SHARED
+    res=[x for x in memory if x[0]==addr ]
+    assert len(res) >0, 'addr_rcvd %r not in cache memory.' % addr
+    output('invalidate function. addr_rcvd=%r, state=%r'%(addr,res[0][1]))
+    send(('Inv_Ack',addr,to_process),to=to_process)
+    index=memory.index(res[0])
+    t=memory.pop(index)
+    if t[1] == 'SHARED':
+      memory.insert(index,(t[0],'INVALID',t[2]))
+    elif t[1] == 'SHARED_MODIFIED_ACK_DATA':
+      memory.insert(index,(t[0],'INVALID_MODIFIED_ACK_DATA',t[2]))
+      current_state='INVALID_MODIFIED_ACK_DATA'
+
+
 
   def perform_load(addr,to_process):
     """ load the value of a particular address in the cache. """
@@ -177,8 +191,8 @@ class MI_PROTO_CACHE(process):
     # when in INVALID, on load, send getS to DC and goto ISD
     # possible msgs to be recevied: ('exclusive_data_from_dir'),('data_from_dir',ack=0),('data_from_owner')
     current_state='INVALID_SHARED_DATA'
-    addr_t,state_t,val_t=memory.pop(0)
-    memory.insert(0,(addr_t,current_state,val_t))
+    t=memory.pop(0)
+    memory.insert(0,(t[0],current_state,t[2]))
     assert memory[0][0]==addr,"current addr request should be at he head of memory LRU, but it isn not"
     # inform DC
     send(('GetS',addr),to=dir_ctrlr)
@@ -197,11 +211,18 @@ class MI_PROTO_CACHE(process):
     # when in INVALID, on load, send getS to DC and goto ISD
     # possible msgs to be recevied: ('exclusive_data_from_dir'),('data_from_dir',ack=0),('data_from_owner')
     current_state='INVALID_MODIFIED_ACK_DATA'
-    addr_t,state_t,val_t=memory.pop(0)
-    memory.insert(0,(addr_t,current_state,val_t))
+    t=memory.pop(0)
+    memory.insert(0,(t[0],current_state,t[2]))
     # inform DC
     send(('GetM',addr),to=dir_ctrlr)
     # await till state changes
+    move_IMAD_to_M(addr,data)
+    t=memory.pop(0)
+    assert t[1]==current_state,'memory state corrupted. ItoM'
+    memory.insert(0,(t[0],current_state,data))
+
+
+  def move_IMAD_to_M(addr,data):
     await(current_state=='INVALID_MODIFIED_ACK' or current_state=='MODIFIED')
     assert memory[0][1]!='INVALID_MODIFIED_ACK_DATA','memory state corrupted'
     if current_state=='MODIFIED':
@@ -209,9 +230,7 @@ class MI_PROTO_CACHE(process):
     else:
       # in IMA state, wait till modified state(receive all acks)
       await(current_state=='MODIFIED')
-    addr_t,state_t,val_t=memory.pop(0)
-    assert state_t==current_state,'memory state corrupted. ItoM'
-    memory.insert(0,(addr_t,current_state,data))
+    return
 
   def move_S_to_M(addr,data):
     res=[x for x in memory if x[0]==addr]
@@ -219,23 +238,32 @@ class MI_PROTO_CACHE(process):
     assert memory[0][0]==addr,"current addr request should be at he head of memory LRU, but it isn't not"
     assert memory[0][1]==current_state,'memory state corrupted'
     current_state='SHARED_MODIFIED_ACK_DATA'
-    addr_t,state_t,val_t=memory.pop(0)
-    memory.insert(0,(addr_t,current_state,val_t))
+    t=memory.pop(0)
+    memory.insert(0,(t[0],current_state,t[2]))
     # inform DC
     send(('GetM',addr),to=dir_ctrlr)
     # await till state changes
-    await(current_state=='SHARED_MODIFIED_ACK' or current_state=='MODIFIED')
+    await(current_state=='SHARED_MODIFIED_ACK' or current_state=='MODIFIED' or current_state=='INVALID_MODIFIED_ACK_DATA')
+    # output('await passed, addr_rcvd=%r,state=%r'%(addr,current_state))
     assert memory[0][1]!='SHARED_MODIFIED_ACK_DATA','memory state corrupted'
     if current_state=='MODIFIED':
       # do nothing
       pass
-    else:
+    elif current_state=='SHARED_MODIFIED_ACK':
       # in SMA state, wait till modified state(receive all acks)
+      # output('SMA in')
       await(current_state=='MODIFIED')
+      # output('SMA out')
+    elif current_state=='INVALID_MODIFIED_ACK_DATA':
+      move_IMAD_to_M(addr,data)
+    else:
+      assert False,'invalid state=%r in S to M' % current_state
     # write data
-    addr_t,state_t,val_t=memory.pop(0)
-    assert state_t==current_state,'memory state corrupted. StoM'
-    memory.insert(0,(addr_t,current_state,data))
+    # output(memory[0])
+    t=memory.pop(0)
+    assert t[1]==current_state,'memory state corrupted. StoM'
+    memory.insert(0,(t[0],current_state,data))
+    current_state='READY'
 
   def move_E_to_M(addr,data):
     # goto MODIFIED state. no other actions
@@ -244,8 +272,8 @@ class MI_PROTO_CACHE(process):
     assert memory[0][0]==addr,"current addr request should be at he head of memory LRU, but it isn't not"
     assert memory[0][1]==current_state,'memory state corrupted'
     current_state='MODIFIED'
-    addr_t,state_t,val_t=memory.pop(0)
-    memory.insert(0,(addr_t,current_state,data))
+    t=memory.pop(0)
+    memory.insert(0,(t[0],current_state,data))
     return
   
 
@@ -288,9 +316,9 @@ class MI_PROTO_CACHE(process):
     if current_state=='INVALID_SHARED_DATA' and addr==memory[0][0]:
       # move to EXCLUSIVE state, update the state in memory for the address
       current_state='EXCLUSIVE'
-      addr_t,state_t,val_t=memory.pop(0)
-      memory.insert(0,(addr_t,current_state,val_rvd))
-      assert state_t=='INVALID_SHARED_DATA','memory state corrupted'
+      t=memory.pop(0)
+      memory.insert(0,(t[0],current_state,val_rvd))
+      assert t[1]=='INVALID_SHARED_DATA','memory state corrupted'
     else:
       assert False, "received out-of-state message. Should not happen. exclusive_data_from_dir.current_state=%r, addr_rcvd=%r, mem0_addr=%r,val_rcvd=%r" % (current_state,addr,memory[0][0],val_rvd)
 
@@ -298,33 +326,33 @@ class MI_PROTO_CACHE(process):
     if current_state=='INVALID_SHARED_DATA' and addr==memory[0][0] and ack==0:
       # move to SHARED state
       current_state='SHARED'
-      addr_t,state_t,val_t=memory.pop(0)
-      memory.insert(0,(addr_t,current_state,val_rvd))
-      assert state_t=='INVALID_SHARED_DATA','memory state corrupted ISD'
+      t=memory.pop(0)
+      memory.insert(0,(t[0],current_state,val_rvd))
+      assert t[1]=='INVALID_SHARED_DATA','memory state corrupted ISD'
     elif current_state=='INVALID_MODIFIED_ACK_DATA' and addr==memory[0][0] and ack==0:
       # move to MODIFIED state
       current_state='MODIFIED'
-      addr_t,state_t,val_t=memory.pop(0)
-      memory.insert(0,(addr_t,current_state,val_rvd))
-      assert state_t=='INVALID_MODIFIED_ACK_DATA','memory state corrupted. data_from_dir.  IMAD'
+      t=memory.pop(0)
+      memory.insert(0,(t[0],current_state,val_rvd))
+      assert t[1]=='INVALID_MODIFIED_ACK_DATA','memory state corrupted. data_from_dir.  IMAD'
     elif current_state=='INVALID_MODIFIED_ACK_DATA' and addr==memory[0][0] and ack>0:
       # move to INVALID_MODIFIED_ACK state
       current_state='INVALID_MODIFIED_ACK'
-      addr_t,state_t,val_t=memory.pop(0)
-      memory.insert(0,(addr_t,current_state,val_rvd,ack))
-      assert state_t=='INVALID_MODIFIED_ACK_DATA','memory state corrupted.data_from_dir. IMA'
+      t=memory.pop(0)
+      memory.insert(0,(t[0],current_state,val_rvd,ack))
+      assert t[1]=='INVALID_MODIFIED_ACK_DATA','memory state corrupted.data_from_dir. IMA'
     elif current_state=='SHARED_MODIFIED_ACK_DATA' and addr==memory[0][0] and ack==0:
       # move to MODIFIED state
       current_state='MODIFIED'
-      addr_t,state_t,val_t=memory.pop(0)
-      memory.insert(0,(addr_t,current_state,val_rvd))
-      assert state_t=='SHARED_MODIFIED_ACK_DATA','memory state corrupted. data_from_dir.  SMAD'
+      t=memory.pop(0)
+      memory.insert(0,(t[0],current_state,val_rvd))
+      assert t[1]=='SHARED_MODIFIED_ACK_DATA','memory state corrupted. data_from_dir.  SMAD'
     elif current_state=='SHARED_MODIFIED_ACK_DATA' and addr==memory[0][0] and ack>0:
       # move to SHARED_MODIFIED_ACK state
       current_state='SHARED_MODIFIED_ACK'
-      addr_t,state_t,val_t=memory.pop(0)
-      memory.insert(0,(addr_t,current_state,val_rvd,ack))
-      assert state_t=='SHARED_MODIFIED_ACK_DATA','memory state corrupted.data_from_dir. SMA'
+      t=memory.pop(0)
+      memory.insert(0,(t[0],current_state,val_rvd,ack))
+      assert t[1]=='SHARED_MODIFIED_ACK_DATA','memory state corrupted.data_from_dir. SMA'
     else:
       assert False, "received out-of-state message. Should not happen. data_from_dir. CURRENT_STATE=%r,ack_count=%r, addr rcvd=%r" % (current_state,ack,addr)
 
@@ -332,53 +360,68 @@ class MI_PROTO_CACHE(process):
     if current_state=='INVALID_SHARED_DATA' and addr==memory[0][0]:
       # move to SHARED state
       current_state='SHARED'
-      addr_t,state_t,val_t=memory.pop(0)
-      memory.insert(0,(addr_t,current_state,val_rvd))
-      assert state_t=='INVALID_SHARED_DATA','memory state corrupted.data_from_owner.ISD'
+      t=memory.pop(0)
+      memory.insert(0,(t[0],current_state,val_rvd))
+      assert t[1]=='INVALID_SHARED_DATA','memory state corrupted.data_from_owner.ISD'
     elif current_state=='INVALID_MODIFIED_ACK_DATA' and addr==memory[0][0]:
       # move to MODIFIED state
       current_state='MODIFIED'
-      addr_t,state_t,val_t=memory.pop(0)
-      memory.insert(0,(addr_t,current_state,val_rvd))
-      assert state_t=='INVALID_MODIFIED_ACK_DATA','memory state corrupted. data_from_owner. IMAD'
+      t=memory.pop(0)
+      memory.insert(0,(t[0],current_state,val_rvd))
+      assert t[1]=='INVALID_MODIFIED_ACK_DATA','memory state corrupted. data_from_owner. IMAD'
     elif current_state=='SHARED_MODIFIED_ACK_DATA' and addr==memory[0][0]:
       # move to MODIFIED state
       current_state='MODIFIED'
-      addr_t,state_t,val_t=memory.pop(0)
-      memory.insert(0,(addr_t,current_state,val_rvd))
-      assert state_t=='SHARED_MODIFIED_ACK_DATA','memory state corrupted. data_from_owner. SMAD'
+      t=memory.pop(0)
+      memory.insert(0,(t[0],current_state,val_rvd))
+      assert t[1]=='SHARED_MODIFIED_ACK_DATA','memory state corrupted. data_from_owner. SMAD'
     else:
       assert False, "received out-of-state message. Should not happen. data_from_owner"
   
   def receive(msg=('Inv_Ack',addr,p), from_=s):
     # state has to be in INVALID_MODIFIED_ACK
+    # output('inv-ack')
     if current_state=='INVALID_MODIFIED_ACK' and addr==memory[0][0]:
-      addr_t,state_t,val_t,ack_count=memory.pop(0)
-      assert type(ack_count) is int, 'ack_count corrupted'
-      assert ack_count >0,'ack count corrupted <=0'
-      ack_count-=1
-      if ack_count==0:
+      t=memory.pop(0)
+      # output('addr_rcvd=%r, ack_count=%r'%(addr,t[3]))
+      assert type(t[3]) is int, 'ack_count corrupted'
+      assert t[3] >0,'ack count corrupted <=0'
+      ack_cnt=t[3]
+      ack_cnt-=1      
+      if ack_cnt==0:
         current_state='MODIFIED'
-      memory.insert(0,(addr_t,current_state,val_t,ack_count))
+      memory.insert(0,(t[0],current_state,t[1],ack_cnt))
     elif current_state=='INVALID_MODIFIED_ACK_DATA' and addr==memory[0][0]:
       assert False,'received inv ack when in IMAD state'
     elif current_state=='SHARED_MODIFIED_ACK' and addr==memory[0][0]:
-      addr_t,state_t,val_t,ack_count=memory.pop(0)
-      assert type(ack_count) is int, 'ack_count corrupted'
-      assert ack_count >0,'ack count corrupted <=0'
-      ack_count-=1
-      if ack_count==0:
+      t=memory.pop(0)
+      # output('INV_ACK addr_rcvd=%r, ack_count=%r'%(addr,t[3]))
+      assert type(t[3]) is int, 'ack_count corrupted'
+      assert t[3] >0,'ack count corrupted <=0'
+      ack_cnt=t[3]
+      ack_cnt-=1
+      if ack_cnt==0:
         current_state='MODIFIED'
-      memory.insert(0,(addr_t,current_state,val_t,ack_count))
+      memory.insert(0,(t[0],current_state,t[2],ack_cnt))
     elif current_state=='SHARED_MODIFIED_ACK_DATA' and addr==memory[0][0]:
       assert False,'received inv ack when in SMAD state'
     else:
-      assert False,'received out-of-state message. Should not happen. Inv-ACK'
+      assert False,'received out-of-state message. Should not happen. Inv-ACK. addr_rcvd=%r, head_memory=%r, state=%r'%(addr,memory[0],memory[0][1])
 
 
   def receive(msg=('Inv',addr,p), from_=s):
     # handled for I,ISD,IMAD,IMA
-    pending_actions.append(('inv',addr,p))
+    res=[x for x in memory if x[0]==addr]
+    assert len(res)>0,'addr_rcvd=%r not in memory'%addr
+    # output('inv msg rcvd for address=%r, state=%r'%(addr,res[0][1]))
+    if(res[0][1]=='SHARED'):
+      perform_invalidation(addr,p)
+    elif(res[0][1]=='SHARED_MODIFIED_ACK_DATA'):
+      perform_invalidation(addr,p)
+    # handle SIA
+    else:
+      pending_actions.append(('inv',addr,p))
+    
 
   def receive(msg=('Fwd_GetS',addr,p), from_=s):
     # handled for I,ISD,IMAD,IMA
@@ -497,7 +540,12 @@ class MI_PROTO_CTRL(process):
     elif memory[addr][0]=='SHARED':
       # send data to req with ack>0,send INV to sharers
       # clear shareers, set owner to request, set state to MODIFIED
+      # check if req is part of the sharers list
+      # if so, remove to_process from sharers list      
+      if to_process in memory[addr][2]:
+        memory[addr][2].remove(to_process)
       send(('data_from_dir',len(memory[addr][2]),addr,memory[addr][3]),to=to_process)
+      output('%r sending inv message to %r'%(to_process,memory[addr][2]))
       send(('Inv',addr,to_process),to={x for x in memory[addr][2]})
       memory[addr][2]=[]
       memory[addr][1]=to_process
@@ -589,7 +637,6 @@ def get_traces(trace_file):
 
           [
            ('r', '0x11111111'),
-         #  ('w', '0x11111114',22),
            ('w', '0x11111111',25)
           ],
 
