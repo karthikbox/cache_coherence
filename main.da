@@ -131,6 +131,8 @@ class MI_PROTO_CACHE(process):
     elif t[1] in ['MODIFIED_INVALID_ACK','EXCLUSIVE_INVALID_ACK']:
       memory.insert(index,(t[0],'SHARED_INVALID_ACK',t[2]))
       current_state='SHARED_INVALID_ACK'
+    else:
+      memory.insert(index,t)
 
 
   def perform_invalidation(addr,to_process):
@@ -758,6 +760,8 @@ def main():
     proto_name = sys.argv[2] if len(sys.argv) > 2 else 'MI'
     #trace_file = sys.argv[3] if len(sys.argv) > 3 else exit(-1)
     trace_file = sys.argv[3] if len(sys.argv) > 3 else 'none'
+
+    config(channel= 'fifo', clock= 'Lamport')
     
     trace = get_traces(trace_file)
     Proto_cache, Proto_ctrl = get_proto_class(proto_name)
