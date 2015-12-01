@@ -2,7 +2,7 @@ import sys
 import time
 
 ENOTSUPP = 2
-CACHE_SIZE = 2
+CACHE_SIZE = 255
 
 def get_proto_class(name):
   if name == "MI":
@@ -98,7 +98,7 @@ class MI_PROTO_CACHE(process):
     assert res[0][1]!='SHARED','address in SHARED state Fwd_getS.'
     # handle EXCLUSIVE and MODIFIED both
     # send data to req, set state to INVALID
-    send(('data_from_owner',res[0][0],res[0][2]),to=to_process)
+
     # get index of the mem tuple from memory
     # pop that tyuple, insert new tuple at index again, new tuple's state changed to SHARED
     # mem tuple will not be at the head of the LRU
@@ -109,6 +109,7 @@ class MI_PROTO_CACHE(process):
     elif t[1] in ['MODIFIED_INVALID_ACK','EXCLUSIVE_INVALID_ACK']:
       memory.insert(index,(t[0],'INVALID_INVALID_ACK',t[2]))
       current_state='INVALID_INVALID_ACK'   
+    send(('data_from_owner',res[0][0],res[0][2]),to=to_process)
 
 
   def perform_fwd_gets(addr,to_process):
@@ -119,8 +120,7 @@ class MI_PROTO_CACHE(process):
     #assert res[0][1]!='SHARED','address in SHARED state Fwd_getS.'
     # handle EXCLUSIVE and MODIFIED both
     # send data to req and DC, set state to SHARED
-    send(('data_from_owner',res[0][0],res[0][2]),to=to_process)
-    send(('data',res[0][0],res[0][2]),to=dir_ctrlr)
+
     # get index of the mem tuple from memory
     # pop that tyuple, insert new tuple at index again, new tuple's state changed to SHARED
     # mem tuple will not be at the head of the LRU
@@ -133,7 +133,8 @@ class MI_PROTO_CACHE(process):
       current_state='SHARED_INVALID_ACK'
     else:
       memory.insert(index,t)
-
+    send(('data',res[0][0],res[0][2]),to=dir_ctrlr)
+    send(('data_from_owner',res[0][0],res[0][2]),to=to_process)
 
   def perform_invalidation(addr,to_process):
     """ Invalidate memory, send Inv_Ack to the caches."""
@@ -623,7 +624,7 @@ class MI_PROTO_CTRL(process):
       memory[addr][2].append(to_process)
       memory[addr][1]=None
       memory[addr][0]='SHARED_DATA'
-      # await for data from the exclusive owner ???
+      # await for data from the exclusive owner ???->yes
       await(memory[addr][0]=='SHARED')
     elif memory[addr][0]=='MODIFIED':
       # forward getS to owner, maker onwer sharer, clear owner
@@ -740,17 +741,16 @@ class Processor(process):
 def get_traces(trace_file):
   return [
           [
-           ('r', '0x11111111'),
-           ('r', '0x11111112'),
            ('w', '0x11111111',201),
            ('r', '0x11111113'),
+           ('r', '0x11111112'),
           ],
 
           [
            ('r', '0x11111112'),
-           ('r', '0x11111113'),
+           #('r', '0x11111113'), 
            ('r', '0x11111111'),
-           #('w', '0x11111111',234),
+           ('w', '0x11111111',234),
           ],
 
          ]
