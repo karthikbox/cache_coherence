@@ -2,7 +2,7 @@ import sys
 import time
 
 ENOTSUPP = 2
-CACHE_SIZE = 2
+CACHE_SIZE = 512
 
 def get_proto_class(name):
   if name == "MI":
@@ -97,11 +97,6 @@ class MI_PROTO_CACHE(process):
     assert res[0][1]!='INVALID','address in INVALID state Fwd_getS.'
     assert res[0][1]!='SHARED','address in SHARED state Fwd_getS.'
     # handle EXCLUSIVE and MODIFIED both
-    # send data to req, set state to INVALID
-    if res[0][1]=='OWNER':
-      send(('data_from_dir',ack,res[0][0],res[0][2]),to=to_process)
-    else:
-      send(('data_from_owner',res[0][0],res[0][2]),to=to_process)
     # get index of the mem tuple from memory
     # pop that tyuple, insert new tuple at index again, new tuple's state changed to SHARED
     # mem tuple will not be at the head of the LRU
@@ -113,40 +108,52 @@ class MI_PROTO_CACHE(process):
       memory.insert(index,(t[0],'INVALID_INVALID_ACK',t[2]))
       current_state='INVALID_INVALID_ACK'   
     elif t[1]=='OWNER':
-      current_state='INVALID'
+      #current_state='INVALID'
       memory.insert(index,(t[0],'INVALID',t[2]))
     elif t[1]=='OWNER_MODIFIED_ACK_COUNT':
       current_state='INVALID_MODIFIED_ACK_DATA'
       memory.insert(index,(t[0],current_state,t[2]))
+    elif t[1]=='OWNER_INVALID_ACK':
+      memory.insert(index,(t[0],'INVALID_INVALID_ACK',t[2]))
+      current_state='INVALID_INVALID_ACK'   
     else:
       memory.insert(index,t)
+    
+    # send data to req, set state to INVALID
+    if res[0][1]=='OWNER':
+      send(('data_from_dir',ack,res[0][0],res[0][2]),to=to_process)
+    else:
+      send(('data_from_owner',res[0][0],res[0][2]),to=to_process)
+    output("in perform_fwd_getm : %r" %memory)
+
 
   def perform_fwd_gets(addr,to_process):
     res=[x for x in memory if x[0]==addr]
-    output(memory)
     assert len(res)>0,'address not in memory. Fwd_getS. addr_rvd=%r' %addr
-    #assert res[0][1]!='INVALID','address in INVALID state Fwd_getS.'
-    #assert res[0][1]!='SHARED','address in SHARED state Fwd_getS.'
-    # handle EXCLUSIVE and MODIFIED both
-    # send data to req and DC, set state to SHARED
-    
-    send(('data_from_owner',res[0][0],res[0][2]),to=to_process)
-    if res[0][1] in ['EXCLUSIVE','MODIFIED','EXCLUSIVE_INVALID_ACK','MODIFIED_INVALID_ACK']: 
-      send(('data',res[0][0],res[0][2]),to=dir_ctrlr)
+    #if res[0][1] in ['EXCLUSIVE','MODIFIED','EXCLUSIVE_INVALID_ACK','MODIFIED_INVALID_ACK']: 
+    #  send(('data',res[0][0],res[0][2]),to=dir_ctrlr)
     # get index of the mem tuple from memory
     # pop that tyuple, insert new tuple at index again, new tuple's state changed to SHARED
     # mem tuple will not be at the head of the LRU
     index=memory.index(res[0])
     t=memory.pop(index)
-    if t[1] in ['MODIFIED','EXCLUSIVE']:
+    if t[1]=='MODIFIED':
+      memory.insert(index,(t[0],'OWNER',t[2]))
+    elif t[1]=='EXCLUSIVE':
       memory.insert(index,(t[0],'SHARED',t[2]))
-    elif t[1] in ['MODIFIED_INVALID_ACK','EXCLUSIVE_INVALID_ACK']:
+    elif t[1]=='MODIFIED_INVALID_ACK':
+      memory.insert(index,(t[0],'OWNER_INVALID_ACK',t[2]))
+      current_state='OWNER_INVALID_ACK'
+    elif t[1]=='EXCLUSIVE_INVALID_ACK':
       memory.insert(index,(t[0],'SHARED_INVALID_ACK',t[2]))
       current_state='SHARED_INVALID_ACK'
+    #elif t[1] in ['OWNER','OWNER_MODIFIED_ACK_COUNT','OWNER_MODIFIED_ACK','OWNER_INVALID_ACK']:
     else:
       memory.insert(index,t)
-       
-    
+  
+   # send data to req,
+    send(('data_from_owner',res[0][0],res[0][2]),to=to_process)
+    output("in perform_fwd_gets : %r" %memory)
 
   def perform_invalidation(addr,to_process):
     """ Invalidate memory, send Inv_Ack to the caches."""
@@ -167,7 +174,7 @@ class MI_PROTO_CACHE(process):
       current_state='INVALID_INVALID_ACK'
     else:
       assert False,"invalid state in perform_invalidation"
-
+    output("in perform_inv %r"%memory)
 
 
   def perform_load(addr,to_process):
@@ -203,6 +210,7 @@ class MI_PROTO_CACHE(process):
     current_state='READY'
     output("Sending Ack")
     send('completed', to=to_process)
+    output("in perform_load %r"%memory)
     output("value returned to processor =%r" % memory[0][2])
 
   def perform_store(addr,to_process,data):
@@ -249,6 +257,7 @@ class MI_PROTO_CACHE(process):
     current_state='READY'
     output("Sending Ack")
     send('completed', to=to_process)
+    output("in perform_store %r"%memory)
     output("value written in cache =%r" % memory[0][2])
 
   
@@ -428,15 +437,16 @@ class MI_PROTO_CACHE(process):
 
   def receive(msg=('ackcount_from_dir',ack,addr), from_=s):
     res = [ x for x in memory if x[0]==addr]
+#    output("%r in ackcount_from_dir" %res[0])
     assert len(res)>0,"couldnt find addr in memory"
     assert memory[0][0]==addr,"current addr request should be at he head of memory LRU, but it isn't not, ackcount_from_dir"
-  #  assert res[0][0]=='OWNER_MODIFIED_ACK_COUNT',"memory state corrupted"
+    assert res[0][1]==current_state,"memory state corrupted, current_state : %r and res[0][0] : %r" %(current_state,res[0][0])
     if current_state=='OWNER_MODIFIED_ACK_COUNT':
       current_state='OWNER_MODIFIED_ACK'
       t=memory.pop(0)
-      memory.insert(0,(t[0],current_state,t[2]))
+      memory.insert(0,(t[0],current_state,t[2],ack))
     else:
-      assert False,'not a valid state for ackcount_from_dir'
+      assert False,'not a valid state for ackcount_from_dir : %r and mem : %r'%(current_state,res[0])
 
   def receive(msg=('data_from_dir',ack,addr,val_rvd), from_=s):
     if current_state=='INVALID_SHARED_DATA' and addr==memory[0][0] and ack==0:
@@ -491,22 +501,20 @@ class MI_PROTO_CACHE(process):
       memory.insert(0,(t[0],current_state,val_rvd))
       assert t[1]=='SHARED_MODIFIED_ACK_DATA','memory state corrupted. data_from_owner. SMAD'
     else:
-      assert False, "received out-of-state message. Should not happen. data_from_owner"
+      assert False, "received out-of-state message. Should not happen. data_from_owner. current_state %r, addr %r" %(current_state,addr)
 
   def receive(msg=('Put_Ack',addr,p), from_=s):
     res = [ x for x in memory if x==addr]
     assert len(res)>0, "addr not in cache memory %r" %addr
     assert res[1]!='INVALID', "memory state not valid for put-ack"
 
-    if current_state in ['SHARED_INVALID_ACK','INVALID_INVALID_ACK','MODIFIED_INVALID_ACK','EXCLUSIVE_INVALID_ACK']:
+    if current_state in ['SHARED_INVALID_ACK','INVALID_INVALID_ACK','MODIFIED_INVALID_ACK','EXCLUSIVE_INVALID_ACK','OWNER_INVALID_ACK']:
       index=memory.index(res[0])
       t=memory.pop(index)
       memory.insert(index,(t[0],'INVALID',t[2]))
       current_state='INVALID'
     else:
       assert False,'invalid state for handling put-ack.'
-
-
 
   
   def receive(msg=('Inv_Ack',addr,p), from_=s):
@@ -648,6 +656,8 @@ class MI_PROTO_CTRL(process):
       perform_putM(t[1],t[2],t[3])
     elif(t[0]=='PutE'):
       perform_putE(t[1],t[2])
+    elif(t[0]=='PutO'):
+      perform_putO(t[1],t[2],t[3])
     else:
       assert False,'invalid request in pending actions queue'
 
@@ -662,8 +672,23 @@ class MI_PROTO_CTRL(process):
       memory[addr][0]='INVALID'
     send(('Put_Ack',addr,self.id),to=to_process)
 
+  def perform_putO(addr,to_process,data):
+    assert memory[addr]=='OWNER','memory state corrupted, perform_putO'
+    # copy data to memory
+    # send put-ack to req
+    # clear owner
+    # make state INVALID if no sharers OR  SHARED is sharers are there
+    memory[addr][3]=data
+    memory[addr][1]=None
+    if len(memory[addr][2])>0:
+      memory[addr][0]='SHARED'
+    else:
+      memory[addr][0]='INVALID'
+    send(('Put_Ack',addr,self.id),to=to_process)
+
+
   def perform_putM(addr,to_process,data):
-    assert memory[addr]=='MODIFIED','memory state corrupted'
+    assert memory[addr]=='MODIFIED','memory state corrupted, perform_putM'
     # copy data to memorry
     # send put-ack to req
     # clear owner
@@ -696,15 +721,15 @@ class MI_PROTO_CTRL(process):
       memory[addr][2].append(to_process)
       send(('data_from_dir',0,addr,memory[addr][3]),to=to_process)
     elif memory[addr][0]=='EXCLUSIVE':
-      # forward GetS to owner, make owner as sharer, clear owner
-      # add req to sharers, make state as SHARED_DATA
+      # forward GetS to owner, add req to sharers
+      # make state as OWNER
       send(('Fwd_GetS',addr,to_process),to=memory[addr][1])
-      memory[addr][2].append(memory[addr][1])
       memory[addr][2].append(to_process)
-      memory[addr][1]=None
-      memory[addr][0]='SHARED_DATA'
+      memory[addr][2].append(memory[addr][1])
+      memory[addr][0]='SHARED'
+      memory[addr][1]=[]
       # await for data from the exclusive owner ???
-      await(memory[addr][0]=='SHARED')
+      #await(memory[addr][0]=='SHARED')
     elif memory[addr][0]=='MODIFIED':
       # forward getS to owner, 
       # add req to sharers, make state as OWNER
@@ -759,19 +784,16 @@ class MI_PROTO_CTRL(process):
         # fwd-getm to owner, send inv to sharers,
         # set owner to req, clear sharers, send ackcount to req, set state to MODIFIED
       if to_process!=memory[addr][1]:
-        send(('Fwd_getM',addr,to_process),to=to_process)
+        if to_process in memory[addr][2]:
+          memory[addr][2].remove(to_process)
+        send(('Fwd_GetM',addr,to_process,len(memory[addr][2])),to=memory[addr][1])
         memory[addr][1]=to_process
-      send(('Inv',addr,to_process),to={x for x in memory[addr][2]})
-      memory[addr][2]=[]
-      send(('data_from_dir',len(memory[addr][2]),addr,memory[addr][3]),to=to_process)
+      elif to_process==memory[addr][1]:
+        send(('ackcount_from_dir',len(memory[addr][2]),addr),to=to_process)
       output('%r sending inv message to %r'%(to_process,memory[addr][2]))
       send(('Inv',addr,to_process),to={x for x in memory[addr][2]})
       memory[addr][2]=[]
-      memory[addr][1]=to_process
       memory[addr][0]='MODIFIED'
-      # forward getM to owner, set owner to req
-      send(('Fwd_GetM',addr,to_process),to=memory[addr][1])
-      memory[addr][1]=to_process
     else:
       assert False, 'invalid memory state for addr_rcvd=%r,state in memory=%r'%(addr,memory[addr][0])
 
@@ -796,6 +818,13 @@ class MI_PROTO_CTRL(process):
     """ Put it in pending queue"""
     pending_actions.append(('PutE',addr,p))
 
+  def receive(msg= ('PutO',addr,data), from_= p):
+    """ Put it in pending queue"""
+    pending_actions.append(('PutO',addr,p,data))
+
+
+
+  # not required in MOESI protocol
   def receive(msg= ('data',addr,data), from_= p):
     """ Do not queue"""
     # receiveing data, that means, addr should be in memory
@@ -842,17 +871,18 @@ class Processor(process):
 def get_traces(trace_file):
   return [
           [
-           ('r', '0x11111111'),
-     #      ('r', '0x11111112'),
-     #      ('w', '0x11111111',201),
-     #      ('r', '0x11111113'),
+          # ('r', '0x11111111'),
+           ('w', '0x11111111',201),
+           ('r', '0x11111113'),
+           ('r', '0x11111112'),
+          # ('w', '0x11111111',212),
           ],
 
           [
-     #      ('r', '0x11111112'),
-     #      ('r', '0x11111113'),
+           ('r', '0x11111112'),
+          # ('r', '0x11111113'),
            ('r', '0x11111111'),
-           #('w', '0x11111111',234),
+           ('w', '0x11111111',234),
           ],
 
          ]
