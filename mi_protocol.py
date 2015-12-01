@@ -1,345 +1,356 @@
-"""
-MI cache coherence protocol implementation in DistAlgo
-based on the online implementation - https://github.com/samuelbritt/CS6290-prj3
 
-To implement the protocol in DistAlgo, we are using a combination of snooping 
-protocol logic and directory protocol logic.
-
-Note: Certain parts of the implementation are same for our group as they are generic classes/methods
-      which are common to all protocols and is part of the intial setup. The other members of the group are
-      Parag Gupta, Karthik Reddy, Garima Gehlot and Amit Kandelwal. I have mentioned the author/source in 
-      the comments section of the appropriate classes/methods
-"""
-
+import da
+PatternExpr_0 = da.pat.TuplePattern([da.pat.ConstantPattern('get'), da.pat.FreePattern('addr')])
+PatternExpr_1 = da.pat.FreePattern('p')
+PatternExpr_2 = da.pat.TuplePattern([da.pat.ConstantPattern('invalidate'), da.pat.FreePattern('addr')])
+PatternExpr_3 = da.pat.FreePattern('p')
+PatternExpr_4 = da.pat.TuplePattern([da.pat.ConstantPattern('found_in_cache'), da.pat.FreePattern('addr'), da.pat.FreePattern('value')])
+PatternExpr_5 = da.pat.TuplePattern([da.pat.ConstantPattern('get_from_cache'), da.pat.FreePattern('addr')])
+PatternExpr_6 = da.pat.TuplePattern([da.pat.ConstantPattern('not_found_in_cache'), da.pat.FreePattern('addr')])
+PatternExpr_7 = da.pat.TuplePattern([da.pat.ConstantPattern('found_in_memory'), da.pat.FreePattern('addr'), da.pat.FreePattern('value')])
+PatternExpr_8 = da.pat.ConstantPattern('not_found_in_memory')
+PatternExpr_9 = da.pat.TuplePattern([da.pat.ConstantPattern('load'), da.pat.FreePattern('addr')])
+PatternExpr_10 = da.pat.FreePattern('s')
+PatternExpr_11 = da.pat.TuplePattern([da.pat.ConstantPattern('store'), da.pat.FreePattern('addr'), da.pat.FreePattern('value')])
+PatternExpr_12 = da.pat.FreePattern('s')
+PatternExpr_13 = da.pat.TuplePattern([da.pat.ConstantPattern('done')])
+PatternExpr_14 = da.pat.ConstantPattern('msg')
+PatternExpr_15 = da.pat.TuplePattern([da.pat.ConstantPattern('get'), da.pat.FreePattern('addr')])
+PatternExpr_16 = da.pat.FreePattern('p')
+PatternExpr_17 = da.pat.TuplePattern([da.pat.ConstantPattern('flush'), da.pat.FreePattern('addr'), da.pat.FreePattern('value')])
+PatternExpr_18 = da.pat.TuplePattern([da.pat.ConstantPattern('done')])
+PatternExpr_19 = da.pat.TuplePattern([da.pat.ConstantPattern('completed_load'), da.pat.FreePattern('value')])
+PatternExpr_20 = da.pat.ConstantPattern('completed_store')
+import sys
+import time
 ENOTSUPP = 2
 CACHE_SIZE = 512
-addr = ""
-p = ""
-s = ""
 
 def get_proto_class(name):
-  """
-  return the corresponding protocol class name and controller name
-  generic to all protocol implementations
-  Author : Parag Gupta (https://github.com/karthikbox/cache_coherence/tree/p_template/main.da)
-  """
-  if name == "MI":
-    return (eval("MI_PROTO_CACHE"), eval("MI_PROTO_CTRL"))
-  else:
-    exit(-ENOTSUPP)
-
-
-class MI_PROTO_CACHE():
-  """
-    MI Protocol Class:
-      - This class handles both the caching logic as well as the protocol logic
-      - snooping of caches and getting data from memory happens via message passing 
-      - Each processor will have a protocol cache process corresponding to it which
-        will maintain that processor's cache memory as well as maintain cache coherence
-      - Inherits from the process class in DistAlgo
-  """
-  def setup(mem_ctrl_protocol_obj, other_protocol_obj, size):
-    """
-      Initialize the cache memory and set the wait flags to false
-    """
-    self.memory = []
-    self.get_from_caches = False
-    self.wait_for_caches = False
-    self.wait_for_memory = False
-    
-  def run():
-    await(False)
-
-  def reorder_cache(addr):
-    """
-      LRU Caching logic
-    """
-
-    """ Check if the addr is present in the list """
-    if (1, addr) in self.memory: 
-      self.memory.remove((1, addr))
+    if (name == 'MI'):
+        return (eval('MI_PROTO_CACHE'), eval('MI_PROTO_CTRL'))
     else:
-      """ Check if the cache is full """
-      if len(self.memory) == size:
-        print("Cache is full")
-        (state, last_addr) = self.memory.pop()
-        if state == 1:
-          send(('flush', last_addr), to=mem_ctrl_protocol_obj)
-    
-    self.memory.insert(0, (1, addr))
+        self.exit((- ENOTSUPP))
+'\n  MI Protocol class:\n'
 
-  def get_addr(addr):
-    """ 
-      The load/store address is not in the cache, try
-          (1) snoop other caches 
-          (2) if (1) fails then get from memory 
-    """
-    wait_for_caches = False;
-    send(('get', addr), to=other_protocol_obj)
-    await(wait_for_caches)
-    if not get_from_caches:
-      wait_for_memory = False
-      send(('get', addr), to=mem_ctrl_protocol_obj)
-      await(wait_for_memory)
+class MI_PROTO_CACHE(da.DistProcess):
 
-    """ Receive data from cache/memory, invalidate all other copies """
-    get_from_caches = False
-    send(('invalidate', addr), to=other_protocol_obj)
+    def __init__(self, parent, initq, channel, props):
+        super().__init__(parent, initq, channel, props)
+        self._events.extend([da.pat.EventPattern(da.pat.ReceivedEvent, '_MI_PROTO_CACHEReceivedEvent_0', PatternExpr_0, sources=[PatternExpr_1], destinations=None, timestamps=None, record_history=None, handlers=[self._MI_PROTO_CACHE_handler_0]), da.pat.EventPattern(da.pat.ReceivedEvent, '_MI_PROTO_CACHEReceivedEvent_1', PatternExpr_2, sources=[PatternExpr_3], destinations=None, timestamps=None, record_history=None, handlers=[self._MI_PROTO_CACHE_handler_1]), da.pat.EventPattern(da.pat.ReceivedEvent, '_MI_PROTO_CACHEReceivedEvent_2', PatternExpr_4, sources=None, destinations=None, timestamps=None, record_history=None, handlers=[self._MI_PROTO_CACHE_handler_2]), da.pat.EventPattern(da.pat.ReceivedEvent, '_MI_PROTO_CACHEReceivedEvent_3', PatternExpr_5, sources=None, destinations=None, timestamps=None, record_history=None, handlers=[self._MI_PROTO_CACHE_handler_3]), da.pat.EventPattern(da.pat.ReceivedEvent, '_MI_PROTO_CACHEReceivedEvent_4', PatternExpr_6, sources=None, destinations=None, timestamps=None, record_history=None, handlers=[self._MI_PROTO_CACHE_handler_4]), da.pat.EventPattern(da.pat.ReceivedEvent, '_MI_PROTO_CACHEReceivedEvent_5', PatternExpr_7, sources=None, destinations=None, timestamps=None, record_history=None, handlers=[self._MI_PROTO_CACHE_handler_5]), da.pat.EventPattern(da.pat.ReceivedEvent, '_MI_PROTO_CACHEReceivedEvent_6', PatternExpr_8, sources=None, destinations=None, timestamps=None, record_history=None, handlers=[self._MI_PROTO_CACHE_handler_6]), da.pat.EventPattern(da.pat.ReceivedEvent, '_MI_PROTO_CACHEReceivedEvent_7', PatternExpr_9, sources=[PatternExpr_10], destinations=None, timestamps=None, record_history=None, handlers=[self._MI_PROTO_CACHE_handler_7]), da.pat.EventPattern(da.pat.ReceivedEvent, '_MI_PROTO_CACHEReceivedEvent_8', PatternExpr_11, sources=[PatternExpr_12], destinations=None, timestamps=None, record_history=None, handlers=[self._MI_PROTO_CACHE_handler_8]), da.pat.EventPattern(da.pat.ReceivedEvent, '_MI_PROTO_CACHEReceivedEvent_9', PatternExpr_13, sources=None, destinations=None, timestamps=None, record_history=None, handlers=[self._MI_PROTO_CACHE_handler_9])])
 
-  def receive_get_address(msg= ('get',addr), from_= p):
-    """
-      Received request for address from another cache, check local
-      cache and if addr is present, invalidate it and send back the value
-    """
+    def setup(self, mem_ctrl_protocol_obj, other_protocol_obj, size):
+        self.mem_ctrl_protocol_obj = mem_ctrl_protocol_obj
+        self.other_protocol_obj = other_protocol_obj
+        self.size = size
+        self.memory = []
+        self.get_from_caches = False
+        self.wait_for_caches = False
+        self.wait_for_memory = False
+        self.get_from_memory = False
+        self.not_found_q = []
+        self.pending_actions = []
 
-    """ Add time delay here to mimic cache-to-cache latency """
-    time.sleep(1)
-    print("Cache request for address: ", addr)
-    if (1, addr) in self.memory:
-      """ invalidate cache block """
-      new_cache = [(0,addr) if x==(1,addr) else x for x in self.memory]
-      self.memory = new_cache
-      send(('found_in_cache'), to=p)
-    else:
-      send(('not_found_in_cache'), to=p)
+    def _da_run_internal(self):
+        _st_label_21 = 0
+        while (_st_label_21 == 0):
+            _st_label_21 += 1
+            if False:
+                _st_label_21 += 1
+            else:
+                super()._label('_st_label_21', block=True)
+                _st_label_21 -= 1
 
-  def receive_invalidate_block(msg= ('invalidate', addr), from_= p):
-    """
-      Invalidate the cache block containing the requested address if present in our cache
-    """
-    """ invalidate cache block """
-    new_cache = [(0,addr) if x==(1,addr) else x for x in self.memory]
-    self.memory = new_cache
+    def reorder(self, addr, value):
+        ' Check if the addr is present in the list '
+        found = False
+        for (state, address, val) in self.memory:
+            if ((state == 1) and (address == addr)):
+                found = True
+                if (value == ''):
+                    value = val
+                self.memory.remove((1, addr, val))
+                break
+        if (not found):
+            ' Check if the cache is full '
+            if (len(self.memory) == self.size):
+                print('Cache is full')
+                (state, last_addr, value) = self.memory.pop()
+                if (state == 1):
+                    self._send(('flush', last_addr, value), self.mem_ctrl_protocol_obj)
+        self.memory.insert(0, (1, addr, value))
+        return value
 
-  def receive_data_from_other_cache(msg=('found_in_cache')):
-    """
-      Received "found in cache" acknowledgement which basically denotes we have found 
-      the requested addr in another cache and received the value from that cache.
-    """
-    print("Addr received from another cache")
-    get_from_caches = True
-    wait_for_caches = True
+    def get_addr(self, addr):
+        self.wait_for_caches = False
+        print(addr)
+        self._send(('get', addr), self.other_protocol_obj)
+        _st_label_46 = 0
+        while (_st_label_46 == 0):
+            _st_label_46 += 1
+            if self.wait_for_caches:
+                _st_label_46 += 1
+            else:
+                super()._label('_st_label_46', block=True)
+                _st_label_46 -= 1
+        if (not self.get_from_caches):
+            self.wait_for_memory = False
+            self._send(('get', addr), self.mem_ctrl_protocol_obj)
+            _st_label_50 = 0
+            while (_st_label_50 == 0):
+                _st_label_50 += 1
+                if self.wait_for_memory:
+                    _st_label_50 += 1
+                else:
+                    super()._label('_st_label_50', block=True)
+                    _st_label_50 -= 1
+            if self.get_from_memory:
+                self._send(('invalidate', addr), self.other_protocol_obj)
+        else:
+            self._send(('invalidate', addr), self.other_protocol_obj)
+        self.get_from_caches = False
 
-  def receive_snoop_caches(msg=('located_in_cache', addr)):
-    """
-      This logic is put in to handle the race condition when two caches are requesting for the same
-      address in memory. When a cache receives this message, it means that the address it had requested the memory
-      controller for has already been loaded by another cache and to snoop the other caches again to get
-      the updated address.
-    """
-    wait_for_memory = True
-    get_addr(addr)
+    def _MI_PROTO_CACHE_handler_0(self, addr, p):
+        ' Add time delay here to mimic cache-to-cache latency '
+        print('Cache request for address: ', addr)
+        print(self.memory)
+        found = False
+        value = ''
+        for i in range(len(self.memory)):
+            if ((self.memory[i][0] == 1) and (self.memory[i][1] == addr)):
+                self.memory[i] = (0, addr, self.memory[i][2])
+                found = True
+                value = self.memory[i][2]
+                break
+        if found:
+            self._send(('found_in_cache', addr, value), p)
+        else:
+            self._send(('not_found_in_cache', addr), p)
+    _MI_PROTO_CACHE_handler_0._labels = None
+    _MI_PROTO_CACHE_handler_0._notlabels = None
 
-  def receive_not_found_in_cache(msg=('not_found_in_cache')):
-    """
-      The requested address/data is not located in a cache. When the number of such messages received
-      equals the number of other caches then its safe to assume that the address/data is not present in
-      any of the other caches and we need to go to the memory controller
-    """
-    if len(setof(a, received(('not_found_in_cache'), from_ =a))) == len(other_protocol_obj):
-      print("Addr not found in the other caches")
-      wait_for_caches = True 
+    def _MI_PROTO_CACHE_handler_1(self, addr, p):
+        ' invalidate cache block '
+        for i in range(len(self.memory)):
+            ' invalidate cache block '
+            if ((self.memory[i][0] == 1) and (self.memory[i][1] == addr)):
+                self.memory[i] = (0, addr, self.memory[i][2])
+                break
+    _MI_PROTO_CACHE_handler_1._labels = None
+    _MI_PROTO_CACHE_handler_1._notlabels = None
 
-  def receive_data_from_memory(msg=('found_in_memory')):
-    """
-      We have received the requested address/data from the memory controller
-    """
-    print("Addr received from memory")
-    wait_for_memory = True
+    def _MI_PROTO_CACHE_handler_2(self, addr, value):
+        print('Addr:', addr, 'received from another cache with value:', value)
+        for i in range(len(self.memory)):
+            ' invalidate cache block '
+            if ((self.memory[i][0] == 0) and (self.memory[i][1] == addr)):
+                self.memory[i] = (1, addr, value)
+                break
+        self.get_from_caches = True
+        self.wait_for_caches = True
+    _MI_PROTO_CACHE_handler_2._labels = None
+    _MI_PROTO_CACHE_handler_2._notlabels = None
 
-  def receive_not_found_in_memory(msg=('not_found_in_memory')):
-    """
-      Address not found in memory, ideally should never happen
-    """
-    print("Addr not found in memory")
-    wait_for_memory = True
+    def _MI_PROTO_CACHE_handler_3(self, addr):
+        self.wait_for_memory = True
+        self.get_addr(addr)
+    _MI_PROTO_CACHE_handler_3._labels = None
+    _MI_PROTO_CACHE_handler_3._notlabels = None
 
-  def receive_load(msg=('load',addr, p), from_=s):
-    """
-      Received load request from processor, load address into cache and send back acknowledgement
-    """
-    print("Received LOAD request for addr %s" % addr);
-    if (1,addr) not in self.memory:
-      """ Cache miss logic """
-      get_addr(addr)
-    self.reorder(addr)
-    print("Sending Ack")
-    send('completed', to=s)
-  
-  def receive_store(msg=('store',addr, p), from_=s):
-    """
-      Received store request from processo, store value into cache and send back acknowledgement
-    """
-    print("Received STORE request for addr %s" % addr);
-    if (1,addr) not in self.memory:
-      """ Cache miss logic """
-      get_addr(addr)
-    self.reorder(addr)
-    print("Sending Ack")
-    send('completed', to=s)
-  
-  def receive_done(msg= ('done',)):
-    """
-      Exit the cache process on a done message
-    """
-    print("Cache Exiting\n")
-    exit()
+    def _MI_PROTO_CACHE_handler_4(self, addr):
+        self.not_found_q.append('recvd_not_found')
+        if (len(self.not_found_q) == len(self.other_protocol_obj)):
+            print('Addr', addr, 'not found in the other caches')
+            self.wait_for_caches = True
+    _MI_PROTO_CACHE_handler_4._labels = None
+    _MI_PROTO_CACHE_handler_4._notlabels = None
 
-class MI_PROTO_CTRL():
-  """
-    MI Memory Controller Class:
-      - This class simulates the system bus and memory controller
-      - keeps track of all addresses in the caches
-      - A standalone process which serves memory requests from the caches
-      - Inherits from the process class in DistAlgo
-  """
-  def setup(cache_protocol_objs):
-    """
-    Setup a hashmap for tracking the addresses in the caches
-    """
-    self.memory_ref = dict()
-  
-  def run():
-    await(False)
-  
-  def receive_get_address(msg= ('get',addr), from_= p):
-    """
-    Retrieve the requested address from memory and send it back to the cache
-    """
-    """ Add time delay here to mimic cache-to-memory latency """
-    time.sleep(3)
-    if addr in self.memory_ref and self.memory_ref[addr] > 0:
-      send(('located_in_cache', addr), to=p)
-    else:
-      self.memory_ref[addr] = 1
-      send(('found_in_memory'), to=p)
+    def _MI_PROTO_CACHE_handler_5(self, addr, value):
+        print('Addr:', addr, 'received from another cache with value:', value)
+        for i in range(len(self.memory)):
+            ' invalidate cache block '
+            if ((self.memory[i][0] == 0) and (self.memory[i][1] == addr)):
+                self.memory[i] = (1, addr, value)
+                break
+        self.get_from_memory = True
+        self.wait_for_memory = True
+    _MI_PROTO_CACHE_handler_5._labels = None
+    _MI_PROTO_CACHE_handler_5._notlabels = None
 
-  def receive_write_back_cache_block(msg= ('flush', addr)):
-    """
-    Flush the corresponding address back to memory
-    """
-    self.memory_ref[addr] = 0
+    def _MI_PROTO_CACHE_handler_6(self):
+        print('Addr not found in memory')
+        self.wait_for_memory = True
+    _MI_PROTO_CACHE_handler_6._labels = None
+    _MI_PROTO_CACHE_handler_6._notlabels = None
 
-  def receive(msg= ('done',)):
-    """
-      Exit the memory controller process on a done message
-    """
-    print("CTRL Exiting\n")
-    exit()
+    def _MI_PROTO_CACHE_handler_7(self, addr, s):
+        print(('Received LOAD request for addr %s' % addr))
+        found = False
+        value = ''
+        for val in self.memory:
+            if ((val[0] == 1) and (val[1] == addr)):
+                found = True
+                break
+        if (not found):
+            self.get_addr(addr)
+        value = self.reorder(addr, '')
+        self.not_found_q.clear()
+        print('Sending Ack')
+        self._send(('completed_load', value), s)
+    _MI_PROTO_CACHE_handler_7._labels = None
+    _MI_PROTO_CACHE_handler_7._notlabels = None
 
-class Processor():
-    """
-    Processor Class:
-      - This class handles the processor logic
-      - reads the execution trace one instruction at a time and executes it
-      - All the load/store intstructions will be send to it's cache controller process
-      - Inherits from the process class in DistAlgo
-      - generic to all protocol implementations
-    """
-    def setup(trace, protocol):
-      """
-        Intialize the keep waiting flag to false
-      """
-      self.keep_waiting = False
-    
-    def execute(inst):
-      """
-        Execute the instructions in the given execution trace 
-      """
-      type, addr = inst
-      if type == "r":
-        send(('load', addr, self.id), to=protocol)
-     
-      elif type == "w":
-        send(('store', addr, self.id), to=protocol)
-      
-      else:
-        print("Unexpected instruction:", inst);
-    
-    def run():
-      for inst in trace:
-        keep_waiting = False
-        execute(inst)
-        await(keep_waiting)
+    def _MI_PROTO_CACHE_handler_8(self, addr, value, s):
+        print(('Received STORE request for addr %s' % addr))
+        found = False
+        for val in self.memory:
+            if ((val[0] == 1) and (val[1] == addr)):
+                found = True
+                break
+        if (not found):
+            self.get_addr(addr)
+        self.reorder(addr, value)
+        self.not_found_q.clear()
+        print('Sending Ack')
+        self._send('completed_store', s)
+    _MI_PROTO_CACHE_handler_8._labels = None
+    _MI_PROTO_CACHE_handler_8._notlabels = None
 
-      print("Processor Exits")
+    def _MI_PROTO_CACHE_handler_9(self):
+        print('Cache Exiting\n')
+        self.exit()
+    _MI_PROTO_CACHE_handler_9._labels = None
+    _MI_PROTO_CACHE_handler_9._notlabels = None
 
-    def receive_ack(msg= ('completed')):
-      """
-        Receive acknowledgement from the cache controller process.
-        This indicates that the instruction has been executed
-      """
-      print("ACKed\n")
-      keep_waiting = True
+class MI_PROTO_CTRL(da.DistProcess):
+
+    def __init__(self, parent, initq, channel, props):
+        super().__init__(parent, initq, channel, props)
+        self._events.extend([da.pat.EventPattern(da.pat.ReceivedEvent, '_MI_PROTO_CTRLReceivedEvent_0', PatternExpr_14, sources=None, destinations=None, timestamps=None, record_history=None, handlers=[self._MI_PROTO_CTRL_handler_10]), da.pat.EventPattern(da.pat.ReceivedEvent, '_MI_PROTO_CTRLReceivedEvent_1', PatternExpr_15, sources=[PatternExpr_16], destinations=None, timestamps=None, record_history=None, handlers=[self._MI_PROTO_CTRL_handler_11]), da.pat.EventPattern(da.pat.ReceivedEvent, '_MI_PROTO_CTRLReceivedEvent_2', PatternExpr_17, sources=None, destinations=None, timestamps=None, record_history=None, handlers=[self._MI_PROTO_CTRL_handler_12]), da.pat.EventPattern(da.pat.ReceivedEvent, '_MI_PROTO_CTRLReceivedEvent_3', PatternExpr_18, sources=None, destinations=None, timestamps=None, record_history=None, handlers=[self._MI_PROTO_CTRL_handler_13])])
+
+    def setup(self, cache_protocol_objs):
+        self.cache_protocol_objs = cache_protocol_objs
+        self.memory_ref = dict()
+        self.memory_value = dict()
+
+    def _da_run_internal(self):
+        _st_label_141 = 0
+        while (_st_label_141 == 0):
+            _st_label_141 += 1
+            if False:
+                _st_label_141 += 1
+            else:
+                super()._label('_st_label_141', block=True)
+                _st_label_141 -= 1
+
+    def _MI_PROTO_CTRL_handler_10(self):
+        print('recevied msg\n')
+    _MI_PROTO_CTRL_handler_10._labels = None
+    _MI_PROTO_CTRL_handler_10._notlabels = None
+
+    def _MI_PROTO_CTRL_handler_11(self, addr, p):
+        ' Add time delay here to mimic cache-to-memory latency '
+        if ((addr in self.memory_ref) and (self.memory_ref[addr] > 0)):
+            self._send(('get_from_cache', addr), p)
+        else:
+            self.memory_ref[addr] = 1
+            if (not (addr in self.memory_value)):
+                self.memory_value[addr] = 0
+            self._send(('found_in_memory', addr, self.memory_value[addr]), p)
+    _MI_PROTO_CTRL_handler_11._labels = None
+    _MI_PROTO_CTRL_handler_11._notlabels = None
+
+    def _MI_PROTO_CTRL_handler_12(self, addr, value):
+        self.memory_ref[addr] = 0
+    _MI_PROTO_CTRL_handler_12._labels = None
+    _MI_PROTO_CTRL_handler_12._notlabels = None
+
+    def _MI_PROTO_CTRL_handler_13(self):
+        print('CTRL Exiting\n')
+        self.exit()
+    _MI_PROTO_CTRL_handler_13._labels = None
+    _MI_PROTO_CTRL_handler_13._notlabels = None
+
+class Processor(da.DistProcess):
+
+    def __init__(self, parent, initq, channel, props):
+        super().__init__(parent, initq, channel, props)
+        self._events.extend([da.pat.EventPattern(da.pat.ReceivedEvent, '_ProcessorReceivedEvent_0', PatternExpr_19, sources=None, destinations=None, timestamps=None, record_history=None, handlers=[self._Processor_handler_14]), da.pat.EventPattern(da.pat.ReceivedEvent, '_ProcessorReceivedEvent_1', PatternExpr_20, sources=None, destinations=None, timestamps=None, record_history=None, handlers=[self._Processor_handler_15])])
+
+    def setup(self, trace, protocol):
+        self.trace = trace
+        self.protocol = protocol
+        self.keep_waiting = False
+
+    def _da_run_internal(self):
+        for inst in self.trace:
+            self.keep_waiting = False
+            self.execute(inst)
+            _st_label_171 = 0
+            while (_st_label_171 == 0):
+                _st_label_171 += 1
+                if self.keep_waiting:
+                    _st_label_171 += 1
+                else:
+                    super()._label('_st_label_171', block=True)
+                    _st_label_171 -= 1
+            else:
+                if (_st_label_171 != 2):
+                    continue
+            if (_st_label_171 != 2):
+                break
+        print('Processor Exits')
+
+    def execute(self, inst):
+        (type, addr, value) = inst
+        if (type == 'r'):
+            self._send(('load', addr), self.protocol)
+        elif (type == 'w'):
+            self._send(('store', addr, value), self.protocol)
+        else:
+            print('Unexpected instruction:', inst)
+
+    def _Processor_handler_14(self, value):
+        print('ACKed load\n')
+        self.keep_waiting = True
+    _Processor_handler_14._labels = None
+    _Processor_handler_14._notlabels = None
+
+    def _Processor_handler_15(self):
+        print('ACKed store\n')
+        self.keep_waiting = True
+    _Processor_handler_15._labels = None
+    _Processor_handler_15._notlabels = None
 
 def get_traces(trace_file):
-  """
-    get_traces - generic to all protocol implementations
-    Get the execution trace list for all the processors
-  """
-  return [
-          [
-           ('r', '0x11111111'),
-           ('r', '0x11111112'),
-           ('w', '0x11111113')
-          ],
-
-          [
-           ('r', '0x11111111'),
-           ('w', '0x11111115'),
-           ('r', '0x11111112')
-          ]
-         ]
+    return [[('r', '0x11111111', 0), ('w', '0x11111111', 3), ('w', '0x11111113', 10)], [('r', '0x11111114', 0), ('r', '0x11111117', 0), ('r', '0x11111111', 0)], "\n          [\n           ('r', '0x11111117'),\n           ('r', '0x11111114'),\n           ('w', '0x11111118')\n          ],\n\n          [\n           ('r', '0x11111112'),\n           ('w', '0x11111116'),\n           ('r', '0x11111113')\n          ]\n          "]
 
 def main():
-    """
-      main routine - generic to all protocol implementations:
-        - spawn DistAlgo processes for n processors, n cache controllers and a
-          memory controller 
-        - get execution traces for each of the processors
-    """
-    nprocessors = int(sys.argv[1]) if len(sys.argv) > 1 else 2
-    proto_name = sys.argv[2] if len(sys.argv) > 2 else 'MI'
-    #trace_file = sys.argv[3] if len(sys.argv) > 3 else exit(-1)
-    trace_file = sys.argv[3] if len(sys.argv) > 3 else 'none'
-    
+    nprocessors = (int(sys.argv[1]) if (len(sys.argv) > 1) else 2)
+    proto_name = (sys.argv[2] if (len(sys.argv) > 2) else 'MI')
+    trace_file = (sys.argv[3] if (len(sys.argv) > 3) else 'none')
+    da.config(channel='fifo', clock='Lamport')
     trace = get_traces(trace_file)
-    Proto_cache, Proto_ctrl = get_proto_class(proto_name)
-    
-    ## Initialize protocol objs for caches and controller
-    mem_ctrl_protocol_obj = new(Proto_ctrl, num=1)
-    protocol_objs = new(Proto_cache, num=nprocessors)
-    
-    ## Setup Protocol for ctrller
-    setup(mem_ctrl_protocol_obj, (protocol_objs,))
-    start(mem_ctrl_protocol_obj)
-
-    ## Setup Protocols for caches
+    (Proto_cache, Proto_ctrl) = get_proto_class(proto_name)
+    mem_ctrl_protocol_obj = da.new(Proto_ctrl, num=1)
+    protocol_objs = da.new(Proto_cache, num=nprocessors)
+    da.setup(mem_ctrl_protocol_obj, (protocol_objs,))
+    da.start(mem_ctrl_protocol_obj)
     for proto_obj in protocol_objs:
-      setup(proto_obj, (mem_ctrl_protocol_obj, protocol_objs - {proto_obj}, CACHE_SIZE))
-      start(proto_obj)
-
-    ## Setup Processors
-    processors = new(Processor, num= nprocessors)
-    
-    ## temp lists for iterating
+        da.setup(proto_obj, (mem_ctrl_protocol_obj, (protocol_objs - {proto_obj}), CACHE_SIZE))
+        da.start(proto_obj)
+    processors = da.new(Processor, num=nprocessors)
     processors_list = list(processors)
     protocol_objs_list = list(protocol_objs)
-    for i in range(nprocessors): 
-      setup(processors_list[i], (trace[i], protocol_objs_list[i]))
-    
-    start(processors)
-    
-    ## Exiting logic
-    for p in processors: 
-      p.join()
-
-    da.send(('done',), to= protocol_objs)
+    for i in range(nprocessors):
+        da.setup(processors_list[i], (trace[i], protocol_objs_list[i]))
+    da.start(processors)
+    for p in processors:
+        p.join()
+    da.send(('done',), to=protocol_objs)
     for m in protocol_objs:
-      m.join()
-
-    da.send(('done',), to= mem_ctrl_protocol_obj)
+        m.join()
+    da.send(('done',), to=mem_ctrl_protocol_obj)
     for m in mem_ctrl_protocol_obj:
-      m.join()
+        m.join()
     print('-----END-----')
-
