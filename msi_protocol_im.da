@@ -55,7 +55,7 @@ class MSI_PROTO_CACHE(process):
     self.memory.insert(0, (state, address, value))
     return value
  
-  def receive(msg=('load', address), from_=s):
+  def receive(msg=('load', address), from_=p):
     print("Received LOAD request for addr %s" % address);
     found = False
     value = ""
@@ -82,9 +82,9 @@ class MSI_PROTO_CACHE(process):
     value = self.reorder(state, address, '')
     self.not_found_q.clear()
     print("Sending Ack")
-    send(('completed_load', value), to=s)
+    send(('completed_load', value), to=p)
   
-  def receive(msg=('store', address, value), from_=s):
+  def receive(msg=('store', address, value), from_=p):
     print("Received STORE request for addr %s" % address);
     found_state = ""  
 
@@ -115,7 +115,8 @@ class MSI_PROTO_CACHE(process):
     self.reorder(state, address, value)
     self.not_found_q.clear()
     print("Sending Ack")
-    send(('completed_store', value), to=s)
+    send(('completed_store', value), to=p)
+    print('reaching here store')
   
   def receive(msg= ('done',)):
     print("Cache Exiting\n")
@@ -262,11 +263,11 @@ class Processor(process):
       print("Processor Exits")
 
     def receive(msg= ('completed_load', value)):
-      print("ACKed load\n")
+      print("ACKed load\n", value)
       keep_waiting = True
 
-    def receive(msg= ('completed_store')):
-      print("ACKed store\n")
+    def receive(msg= ('completed_store', value)):
+      print("ACKed store\n", value)
       keep_waiting = True
 
 def get_traces(trace_file):
