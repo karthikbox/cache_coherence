@@ -216,6 +216,9 @@ class MI_PROTO_CACHE(process):
         move_S_to_M(addr,data)
       elif res[0][1] =='MODIFIED':
         update_lru_position_of(res[0])
+        # write data to memory
+        tx=memory.pop(0)
+        memory.insert(0,(tx[0],tx[1],data))
       elif res[0][1]=='EXCLUSIVE':
         update_lru_position_of(res[0])
         current_state='EXCLUSIVE'
@@ -755,11 +758,12 @@ def main():
     nprocessors = int(sys.argv[1]) if len(sys.argv) > 1 else 2
     proto_name = sys.argv[2] if len(sys.argv) > 2 else 'MI'
     #trace_file = sys.argv[3] if len(sys.argv) > 3 else exit(-1)
-    trace_dir = sys.argv[3] if len(sys.argv) > 3 else 'none'
+    trace_dir = sys.argv[3] if len(sys.argv) > 3 else './traces'
 
     config(channel= 'fifo', clock= 'Lamport')
     
-    trace = get_traces(trace_file,nprocessors)
+    trace = get_traces(trace_dir,nprocessors)
+    print(trace)
     Proto_cache, Proto_ctrl = get_proto_class(proto_name)
     
     ## Initialize protocol objs for caches and controller
