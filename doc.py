@@ -5,6 +5,10 @@ To implement the protocol in DistAlgo, I am using directory-based protocol logic
 Note: The basic structural view for the protocol is same for our group and hence certain classes/methods
       which are common to all protocols is part of the intial setup. The other members of the group are
       Parag Gupta, Karthik Reddy, Garima Gehlot and Paul Mathew.
+      Particularly for MOESI protocol, I am working for Karthik Reddy for MESI protocol implementation
+      as their are some minor changes to be done to convert MESI->MOESI protocol.
+      So, majorly the code with Karthik Reddy will be same excluding the explicit changes I need to do 
+      to make it MOESI protocol.
 """
 import pydoc
 import sys
@@ -33,6 +37,9 @@ class MOESI_Cache():
   The implementation is based on the state transitions as explained in the following mentioned book (Chapter 8).
   Reference : Sorin, Daniel J., Mark D. Hill, and David A. Wood. "A primer on memory consistency and 
   cache coherence." Synthesis Lectures on Computer Architecture 6.3 (2011): 1-212.
+  Book doesn't contain the state diagram/machine for MOESI protocol, but understanding the MESI and MOSI protocol 
+  clearly helped me to create a state machine for MOESI protocol together with some brain-storming sessions with 
+  Karthik Reddy.
   """
   def setup(mem_ctrl_protocol_obj, other_protocol_obj, size):
     self.memory = []
@@ -214,6 +221,10 @@ class MOESI_Directory():
   This class simulates the shared directory between caches and is responsible for managing data in the memory.
   This is a single process which handles all access requests from all the processor caches.
   It keeps track of all data entries and their states corresponding to memory.
+  Reference : 
+  Sorin, Daniel J., Mark D. Hill, and David A. Wood. "A primer on memory consistency and 
+  cache coherence." Synthesis Lectures on Computer Architecture 6.3 (2011): 1-212.
+  Karthik Reddy : https://github.com/karthikbox/cache_coherence/blob/mesi_protocol/submit_files/mesi_protocol_main.txt
   """
 
   def setup(cache_protocol_objs):
@@ -261,7 +272,8 @@ class ProcessorReq():
   Processor Class:
   This class simulates the read/write requests to a particular processor.
   implementation wise, it makes read/write requests to cache controller one at a time.
-  This class in generic to all protocols being implemented by other group members.
+  Since this is a part of common platform on which the team will do the evaluations, copied it from following :-
+  Reference: Parag Gupta. https://github.com/karthikbox/cache_coherence/tree/p_template/main.da
   """
   def setup(trace, protocol):
     self.keep_waiting = False
@@ -293,7 +305,8 @@ class ProcessorReq():
 def ReadTraces(trace_file):
   """
   Temporary implementation to simulate access requests to a processor.
-  Generic to all protocol implementations.
+  Generic to all protocol implementations. Copied it from following :-
+  Reference: Parag Gupta. https://github.com/karthikbox/cache_coherence/tree/p_template/main.da
   """
   return [
           [
@@ -318,7 +331,9 @@ def main():
   where n - # of processors ( local-caches)
         Protocol - Protocol Name (MI/MSI/MESI/MOSI/MOESI)
         Path - Path of the trace file to run with
-
+  Since this is a part of common platform on which the team will do the evaluations, copied it from following :-
+  Reference: Parag Gupta. https://github.com/karthikbox/cache_coherence/tree/p_template/main.da
+  
   """
   nprocessors = int(sys.argv[1]) if len(sys.argv) > 1 else 2
   proto_name = sys.argv[2] if len(sys.argv) > 2 else 'MI'
