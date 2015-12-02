@@ -22,7 +22,8 @@ PatternExpr_18 = da.pat.TuplePattern([da.pat.ConstantPattern('completed_load'), 
 PatternExpr_19 = da.pat.ConstantPattern('completed_store')
 PatternExpr_20 = da.pat.TuplePattern([da.pat.ConstantPattern('ins'), da.pat.FreePattern('type'), da.pat.FreePattern('addr'), da.pat.FreePattern('value'), da.pat.FreePattern('cache_id')])
 PatternExpr_21 = da.pat.TuplePattern([da.pat.ConstantPattern('inc_msg_cnt'), da.pat.FreePattern('value')])
-PatternExpr_22 = da.pat.TuplePattern([da.pat.ConstantPattern('done')])
+PatternExpr_22 = da.pat.TuplePattern([da.pat.ConstantPattern('time_taken'), da.pat.FreePattern('cpu'), da.pat.FreePattern('elapsed')])
+PatternExpr_23 = da.pat.TuplePattern([da.pat.ConstantPattern('done')])
 import sys
 import time
 ENOTSUPP = 2
@@ -332,21 +333,23 @@ class Monitor(da.DistProcess):
 
     def __init__(self, parent, initq, channel, props):
         super().__init__(parent, initq, channel, props)
-        self._events.extend([da.pat.EventPattern(da.pat.ReceivedEvent, '_MonitorReceivedEvent_0', PatternExpr_20, sources=None, destinations=None, timestamps=None, record_history=None, handlers=[self._Monitor_handler_15]), da.pat.EventPattern(da.pat.ReceivedEvent, '_MonitorReceivedEvent_1', PatternExpr_21, sources=None, destinations=None, timestamps=None, record_history=None, handlers=[self._Monitor_handler_16]), da.pat.EventPattern(da.pat.ReceivedEvent, '_MonitorReceivedEvent_2', PatternExpr_22, sources=None, destinations=None, timestamps=None, record_history=None, handlers=[self._Monitor_handler_17])])
+        self._events.extend([da.pat.EventPattern(da.pat.ReceivedEvent, '_MonitorReceivedEvent_0', PatternExpr_20, sources=None, destinations=None, timestamps=None, record_history=None, handlers=[self._Monitor_handler_15]), da.pat.EventPattern(da.pat.ReceivedEvent, '_MonitorReceivedEvent_1', PatternExpr_21, sources=None, destinations=None, timestamps=None, record_history=None, handlers=[self._Monitor_handler_16]), da.pat.EventPattern(da.pat.ReceivedEvent, '_MonitorReceivedEvent_2', PatternExpr_22, sources=None, destinations=None, timestamps=None, record_history=None, handlers=[self._Monitor_handler_17]), da.pat.EventPattern(da.pat.ReceivedEvent, '_MonitorReceivedEvent_3', PatternExpr_23, sources=None, destinations=None, timestamps=None, record_history=None, handlers=[self._Monitor_handler_18])])
 
     def setup(self):
         self.instructions = []
         self.total_msgs = 0
+        self.cpu_time = 0
+        self.elapsed_time = 0
 
     def _da_run_internal(self):
-        _st_label_192 = 0
-        while (_st_label_192 == 0):
-            _st_label_192 += 1
+        _st_label_197 = 0
+        while (_st_label_197 == 0):
+            _st_label_197 += 1
             if False:
-                _st_label_192 += 1
+                _st_label_197 += 1
             else:
-                super()._label('_st_label_192', block=True)
-                _st_label_192 -= 1
+                super()._label('_st_label_197', block=True)
+                _st_label_197 -= 1
 
     def _Monitor_handler_15(self, type, addr, value, cache_id):
         self.instructions.append((type, addr, value, cache_id))
@@ -358,13 +361,24 @@ class Monitor(da.DistProcess):
     _Monitor_handler_16._labels = None
     _Monitor_handler_16._notlabels = None
 
-    def _Monitor_handler_17(self):
-        print('Total msg count:', self.total_msgs)
-        for ins in self.instructions:
-            print(ins[3], ': ', ins[0], ins[1], ins[2])
-        self.exit()
+    def _Monitor_handler_17(self, cpu, elapsed):
+        self.cpu_time = cpu
+        self.elapsed_time = elapsed
     _Monitor_handler_17._labels = None
     _Monitor_handler_17._notlabels = None
+
+    def _Monitor_handler_18(self):
+        print('===Load/Store global order===')
+        for ins in self.instructions:
+            print(ins[3], ': ', ins[0], ins[1], ins[2])
+        print()
+        print('===Benchmarks===')
+        print('Total msg count:', self.total_msgs)
+        print('Elapsed time:', self.elapsed_time)
+        print('CPU time:', self.cpu_time)
+        self.exit()
+    _Monitor_handler_18._labels = None
+    _Monitor_handler_18._notlabels = None
 
 def get_traces(trace_file):
     return [[('r', '0x11111111', 0), ('w', '0x11111111', 3), ('w', '0x11111113', 10)], [('r', '0x11111114', 0), ('r', '0x11111117', 0), ('r', '0x11111111', 0)], "\n          [\n           ('r', '0x11111117'),\n           ('r', '0x11111114'),\n           ('w', '0x11111118')\n          ],\n\n          [\n           ('r', '0x11111112'),\n           ('w', '0x11111116'),\n           ('r', '0x11111113')\n          ]\n          "]
@@ -374,6 +388,8 @@ def main():
     proto_name = (sys.argv[2] if (len(sys.argv) > 2) else 'MI')
     trace_file = (sys.argv[3] if (len(sys.argv) > 3) else 'none')
     da.config(channel='fifo', clock='Lamport')
+    start_cpu_time = time.process_time()
+    start_elapsed_time = time.perf_counter()
     trace = get_traces(trace_file)
     (Proto_cache, Proto_ctrl) = get_proto_class(proto_name)
     print('-----START-----')
@@ -401,6 +417,9 @@ def main():
     da.send(('done',), to=mem_ctrl_protocol_obj)
     for m in mem_ctrl_protocol_obj:
         m.join()
+    end_cpu_time = time.process_time()
+    end_elapsed_time = time.perf_counter()
+    da.send(('time_taken', (end_cpu_time - start_cpu_time), (end_elapsed_time - start_elapsed_time)), to=monitor_obj)
     da.send(('done',), to=monitor_obj)
     for monitor in monitor_obj:
         monitor.join()

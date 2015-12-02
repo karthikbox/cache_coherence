@@ -73,7 +73,6 @@ class MI_PROTO_CACHE(process):
 
   def receive(msg= ('get',addr), from_= p):
     """ Add time delay here to mimic cache-to-cache latency """
-    #time.sleep(1)
     #print("Cache request for address: ", addr)
     #print(self.memory)
     found = False
@@ -249,6 +248,8 @@ class Monitor(process):
   def setup():
     self.instructions = []
     self.total_msgs = 0
+    self.cpu_time = 0
+    self.elapsed_time = 0
    
   def receive(msg= ('ins', type, addr, value, cache_id)):
     instructions.append((type, addr, value, cache_id))
@@ -256,14 +257,22 @@ class Monitor(process):
   def receive(msg= ('inc_msg_cnt', value)):
     total_msgs = total_msgs + value
 
+  def receive(msg= ('time_taken', cpu, elapsed)):
+    cpu_time = cpu
+    elapsed_time = elapsed 
+
   def run():
     await(False)
 
   def receive(msg= ('done',)):
-    print("Total msg count:", total_msgs)
+    print("===Load/Store global order===")
     for ins in instructions:
       print(ins[3], ": ", ins[0], ins[1], ins[2])
-    #print("CTRL Exiting\n")
+    print()
+    print("===Benchmarks===")
+    print("Total msg count:", total_msgs)
+    print("Elapsed time:", elapsed_time)
+    print("CPU time:", cpu_time)
     exit()
 
 def get_traces(trace_file):
@@ -301,6 +310,9 @@ def main():
     trace_file = sys.argv[3] if len(sys.argv) > 3 else 'none'
 
     config(channel= 'fifo', clock= 'Lamport')
+
+    start_cpu_time = time.process_time()
+    start_elapsed_time = time.perf_counter()
     
     trace = get_traces(trace_file)
     Proto_cache, Proto_ctrl = get_proto_class(proto_name)
@@ -346,6 +358,11 @@ def main():
     da.send(('done',), to= mem_ctrl_protocol_obj)
     for m in mem_ctrl_protocol_obj:
       m.join()
+
+    end_cpu_time = time.process_time()
+    end_elapsed_time = time.perf_counter()
+
+    da.send(('time_taken', end_cpu_time-start_cpu_time, end_elapsed_time-start_elapsed_time), to= monitor_obj)
     da.send(('done',), to= monitor_obj)
     for monitor in monitor_obj:
       monitor.join() 
