@@ -92,6 +92,7 @@ class MI_PROTO_CACHE(process):
          
 
   def perform_fwd_getm(addr,to_process,ack):
+    output("in perform_fwd_getm begin: %r" %memory)
     res=[x for x in memory if x[0]==addr]
     assert len(res)>0,'address not in memory. Fwd_getM. addr_rvd=%r' %addr
     assert res[0][1]!='INVALID','address in INVALID state Fwd_getS.'
@@ -120,7 +121,7 @@ class MI_PROTO_CACHE(process):
       memory.insert(index,t)
     
     # send data to req, set state to INVALID
-    if res[0][1]=='OWNER':
+    if res[0][1] in ['OWNER','OWNER_MODIFIED_ACK_COUNT']:
       send(('data_from_dir',ack,res[0][0],res[0][2]),to=to_process)
     else:
       send(('data_from_owner',res[0][0],res[0][2]),to=to_process)
@@ -128,6 +129,7 @@ class MI_PROTO_CACHE(process):
 
 
   def perform_fwd_gets(addr,to_process):
+    output("in perform_fwd_getS begin: %r" %memory)
     res=[x for x in memory if x[0]==addr]
     assert len(res)>0,'address not in memory. Fwd_getS. addr_rvd=%r' %addr
     #if res[0][1] in ['EXCLUSIVE','MODIFIED','EXCLUSIVE_INVALID_ACK','MODIFIED_INVALID_ACK']: 
@@ -595,7 +597,7 @@ class MI_PROTO_CACHE(process):
   def receive(msg=('Fwd_GetM',addr,p,ack), from_=s):
     # handled for I,ISD,IMAD,IMA
     res=[x for x in memory if x[0]==addr]
-    if res[0][1]=='OWNER':
+    if res[0][1] in ['OWNER','OWNER_MODIFIED_ACK_COUNT']:
       perform_fwd_getm(addr,p,ack)
 
 
@@ -761,7 +763,7 @@ class MI_PROTO_CTRL(process):
       if to_process in memory[addr][2]:
         memory[addr][2].remove(to_process)
       send(('data_from_dir',len(memory[addr][2]),addr,memory[addr][3]),to=to_process)
-      output('%r sending inv message to %r'%(to_process,memory[addr][2]))
+      output('%r sending inv message to %r (in SHARED)'%(to_process,memory[addr][2]))
       send(('Inv',addr,to_process),to={x for x in memory[addr][2]})
       memory[addr][2]=[]
       memory[addr][1]=to_process
@@ -790,7 +792,7 @@ class MI_PROTO_CTRL(process):
         memory[addr][1]=to_process
       elif to_process==memory[addr][1]:
         send(('ackcount_from_dir',len(memory[addr][2]),addr),to=to_process)
-      output('%r sending inv message to %r'%(to_process,memory[addr][2]))
+      output('%r sending inv message to %r (in OWNER)'%(to_process,memory[addr][2]))
       send(('Inv',addr,to_process),to={x for x in memory[addr][2]})
       memory[addr][2]=[]
       memory[addr][0]='MODIFIED'
@@ -871,20 +873,17 @@ class Processor(process):
 def get_traces(trace_file):
   return [
           [
-          # ('r', '0x11111111'),
-           ('w', '0x11111111',201),
-           ('r', '0x11111113'),
-           ('r', '0x11111112'),
-          # ('w', '0x11111111',212),
-          ],
-
-          [
-           ('r', '0x11111112'),
-          # ('r', '0x11111113'),
            ('r', '0x11111111'),
-           ('w', '0x11111111',234),
-          ],
-
+           ('w', '0x11111111',201),
+           ('r', '0x11111111'),
+           ('w', '0x11111111',202),
+         ],
+          [
+           ('w', '0x11111111',301),
+           ('r', '0x11111111'),
+           ('w', '0x11111111',302),
+           ('r', '0x11111111'),
+         ],
          ]
 
 def main():
