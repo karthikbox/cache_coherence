@@ -110,7 +110,7 @@ class MI_PROTO_CACHE(process):
       memory.insert(index,(t[0],'INVALID_INVALID_ACK',t[2]))
       current_state='INVALID_INVALID_ACK'   
     send(('data_from_owner',res[0][0],res[0][2]),to=to_process)
-
+    output('after perform_fwd_getm mem state=%r'%memory)
 
   def perform_fwd_gets(addr,to_process):
     res=[x for x in memory if x[0]==addr]
@@ -135,13 +135,14 @@ class MI_PROTO_CACHE(process):
       memory.insert(index,t)
     send(('data',res[0][0],res[0][2]),to=dir_ctrlr)
     send(('data_from_owner',res[0][0],res[0][2]),to=to_process)
+    output('after perform_fwd_gets mem state=%r'%memory)
 
   def perform_invalidation(addr,to_process):
     """ Invalidate memory, send Inv_Ack to the caches."""
     # state should be SHARED
     res=[x for x in memory if x[0]==addr ]
     assert len(res) >0, 'addr_rcvd %r not in cache memory.' % addr
-    output('invalidate function. addr_rcvd=%r, state=%r'%(addr,res[0][1]))
+    # output('invalidate function. addr_rcvd=%r, state=%r'%(addr,res[0][1]))
     send(('Inv_Ack',addr,to_process),to=to_process)
     index=memory.index(res[0])
     t=memory.pop(index)
@@ -155,7 +156,7 @@ class MI_PROTO_CACHE(process):
       current_state='INVALID_INVALID_ACK'
     else:
       assert False,"invalid state in perform_invalidation"
-
+    output('after perform_invalidation mem state=%r'%memory)
 
 
   def perform_load(addr,to_process):
@@ -192,6 +193,7 @@ class MI_PROTO_CACHE(process):
     output("Sending Ack")
     send('completed', to=to_process)
     output("value returned to processor =%r" % memory[0][2])
+    output('after perform_load mem state=%r'%memory)
 
   def perform_store(addr,to_process,data):
     """ store the value of a particular address in the cache. """
@@ -234,7 +236,7 @@ class MI_PROTO_CACHE(process):
     output("Sending Ack")
     send('completed', to=to_process)
     output("value written in cache =%r" % memory[0][2])
-
+    output('after perform_store mem state=%r'%memory)
   
   def move_I_to_SorE(addr):
     res=[x for x in memory if x[0]==addr]
@@ -741,16 +743,37 @@ class Processor(process):
 def get_traces(trace_file):
   return [
           [
-           ('w', '0x11111111',201),
-           ('r', '0x11111113'),
-           ('r', '0x11111112'),
+           ('r', '0x11111111'),
+           ('w', '0x11111111',432),
+           ('r', '0x11111111'),
+           ('w', '0x11111111',433),
+           ('r', '0x11111111'),
+           ('w', '0x11111111',434),
+           ('r', '0x11111111'),
+           ('w', '0x11111111',435),
+           ('r', '0x11111111'),
+           ('w', '0x11111111',436),
+           ('r', '0x11111111'),
+           ('w', '0x11111111',437),
+
           ],
 
           [
-           ('r', '0x11111112'),
-           #('r', '0x11111113'), 
            ('r', '0x11111111'),
-           ('w', '0x11111111',234),
+           ('w', '0x11111111',123),
+           ('r', '0x11111111'),
+           ('w', '0x11111111',124),
+           ('r', '0x11111111'),
+           ('w', '0x11111111',125),
+           ('r', '0x11111111'),
+           ('w', '0x11111111',126),
+           ('r', '0x11111111'),
+           ('w', '0x11111111',127),
+           ('r', '0x11111111'),
+           ('w', '0x11111111',128),
+           ('r', '0x11111111'),
+           ('w', '0x11111111',129),
+           ('r', '0x11111111'),
           ],
 
          ]
