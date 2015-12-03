@@ -16,7 +16,7 @@ def get_proto_class(name):
   MI Protocol class:
 """
 class MI_PROTO_CACHE(process):
-  def setup(dir_ctrlr, other_caches, size):
+  def setup(dir_ctrlr, other_caches, size,mon_process):
     self.memory = []
     
     self.pending_actions=[]
@@ -215,6 +215,8 @@ class MI_PROTO_CACHE(process):
     send('completed', to=to_process)
     output("in perform_load %r"%memory)
     output("value returned to processor =%r" % memory[0][2])
+    output('after perform_load mem state=%r,lc=%r'%(memory,logical_clock()))
+    send(('ins', 'load', addr, memory[0][2], self.id,logical_clock()),to=mon_process)
 
   def perform_store(addr,to_process,data):
     """ store the value of a particular address in the cache. """
@@ -265,7 +267,8 @@ class MI_PROTO_CACHE(process):
     send('completed', to=to_process)
     output("in perform_store %r"%memory)
     output("value written in cache =%r" % memory[0][2])
-
+    output('after perform_store mem state=%r, lc=%r'%(memory,logical_clock()))
+    send(('ins', 'store', addr, memory[0][2], self.id,logical_clock()),to=mon_process)
   
   def move_I_to_SorE(addr):
     res=[x for x in memory if x[0]==addr]
@@ -885,6 +888,40 @@ def get_traces(trace_dir, nprocs):
     trace.append(insts)
   return trace  
 
+class Monitor(process):
+  def setup():
+    self.instructions = []
+    self.total_msgs = 0
+    self.cpu_time = 0
+    self.elapsed_time = 0
+   
+  def receive(msg= ('ins', type, addr, value, cache_id,lc)):
+    instructions.append((type, addr, value, cache_id,lc))
+
+  def receive(msg= ('inc_msg_cnt', value)):
+    total_msgs = total_msgs + value
+
+  def receive(msg= ('time_taken', cpu, elapsed)):
+    cpu_time = cpu
+    elapsed_time = elapsed 
+
+  def run():
+    await(False)
+    
+
+  
+  def receive(msg= ('done',)):
+    print("===Load/Store global order===")
+    for ins in instructions:
+      print(ins[3], " : ", ins[0], ins[1], ins[2])
+    print()
+    print("===Benchmarks===")
+    print("Total msg count:", total_msgs)
+    print("Elapsed time:", elapsed_time)
+    print("CPU time:", cpu_time)
+    exit()
+
+
 def main():
     nprocessors = int(sys.argv[1]) if len(sys.argv) > 1 else 2
     proto_name = sys.argv[2] if len(sys.argv) > 2 else 'MI'
@@ -897,6 +934,13 @@ def main():
     trace = get_traces(trace_dir,nprocessors)
     Proto_cache, Proto_ctrl = get_proto_class(proto_name)
     
+    print('-----START-----')
+    ## Start monitor process
+    monitor_obj = new(Monitor, num=1)
+    setup(monitor_obj, ())
+    start(monitor_obj)
+
+    
     ## Initialize protocol objs for caches and controller
     mem_ctrl_protocol_obj = new(Proto_ctrl, num=1)
     protocol_objs = new(Proto_cache, num=nprocessors)
@@ -907,7 +951,7 @@ def main():
 
     ## Setup Protocols for caches
     for proto_obj in protocol_objs:
-      setup(proto_obj, (mem_ctrl_protocol_obj, protocol_objs - {proto_obj}, CACHE_SIZE))
+      setup(proto_obj, (mem_ctrl_protocol_obj, protocol_objs - {proto_obj}, CACHE_SIZE,monitor_obj))
       start(proto_obj)
 
     ## Setup Processors
@@ -932,5 +976,9 @@ def main():
     da.send(('done',), to= mem_ctrl_protocol_obj)
     for m in mem_ctrl_protocol_obj:
       m.join()
+    
+    da.send(('done',), to= monitor_obj)
+    for monitor in monitor_obj:
+      monitor.join()
     print('-----END-----')
 
