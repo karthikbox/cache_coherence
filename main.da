@@ -709,6 +709,7 @@ class MI_PROTO_CTRL(process):
 
   def perform_putM(addr,to_process,data):
     assert memory[addr]=='MODIFIED','memory state corrupted, perform_putM'
+    time.sleep(0.1)
     # copy data to memorry
     # send put-ack to req
     # clear owner
@@ -733,6 +734,7 @@ class MI_PROTO_CTRL(process):
     # key -value : memory_addr, [state,owner,[sharers],value]
     assert addr in memory, "address %r not in memory" % addr
     if memory[addr][0]=='INVALID':
+      time.sleep(0.1)
       # send exclusive data to req, set owner to req, set state to exclusive
       send(('exclusive_data_from_dir',addr,memory[addr][3]),to=to_process)
       memory[addr][1]=to_process
@@ -773,6 +775,7 @@ class MI_PROTO_CTRL(process):
     output("addr_rcvd=%r, state in memory=%r"%(addr,memory[addr][0]))
     if memory[addr][0]=='INVALID':
       # send data_from_dir with ack=0 to req, set owner to req, set state MODIFIED
+      time.sleep(0.1)
       send(('data_from_dir',0,addr,memory[addr][3]),to=to_process)
       send(('inc_msg_cnt', 1), to=monitor_obj)
       memory[addr][1]=to_process
