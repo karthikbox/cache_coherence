@@ -798,6 +798,9 @@ def main():
 
     config(channel= 'fifo', clock= 'Lamport')
     
+    start_cpu_time = time.process_time()
+    start_elapsed_time = time.perf_counter()    
+    
     trace = get_traces(trace_dir,nprocessors)
     print(trace)
     Proto_cache, Proto_ctrl = get_proto_class(proto_name)
@@ -844,6 +847,11 @@ def main():
     da.send(('done',), to= mem_ctrl_protocol_obj)
     for m in mem_ctrl_protocol_obj:
       m.join()
+
+    end_cpu_time = time.process_time()
+    end_elapsed_time = time.perf_counter()
+
+    da.send(('time_taken', end_cpu_time-start_cpu_time, end_elapsed_time-start_elapsed_time), to= monitor_obj)
     
     da.send(('done',), to= monitor_obj)
     for monitor in monitor_obj:
