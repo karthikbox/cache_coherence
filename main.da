@@ -16,7 +16,7 @@ def get_proto_class(name):
   MI Protocol class:
 """
 class MI_PROTO_CACHE(process):
-  def setup(dir_ctrlr, other_caches, size,mon_process):
+  def setup(dir_ctrlr, other_caches, size,monitor_obj):
     self.memory = []
     
     self.pending_actions=[]
@@ -62,6 +62,7 @@ class MI_PROTO_CACHE(process):
     assert t==memory[len(memory)-1],"not a valid tuple for eviction tuple=%r"%t
     if t[1]=='SHARED':
       send(('PutS',t[0]), to=dir_ctrlr)
+      send(('inc_msg_cnt', 1), to=monitor_obj)
       current_state='SHARED_INVALID_ACK'
       await(current_state=='INVALID' or current_state=='INVALID_INVALID_ACK')
       output('await passed with current_state %r'%current_state)
@@ -76,6 +77,7 @@ class MI_PROTO_CACHE(process):
       elif t[1]=='EXCLUSIVE':
         send(('PutE',t[0]), to=dir_ctrlr)
         current_state='EXCLUSIVE_INVALID_ACK'
+      send(('inc_msg_cnt', 1), to=monitor_obj)
       await(current_state=='INVALID' or current_state=='INVALID_INVALID_ACK' or current_state=='SHARED_INVALID_ACK')
       output('await passed with current_state %r'%current_state)
       if current_state=='INVALID':
@@ -126,6 +128,7 @@ class MI_PROTO_CACHE(process):
       send(('data_from_dir',ack,res[0][0],res[0][2]),to=to_process)
     else:
       send(('data_from_owner',res[0][0],res[0][2]),to=to_process)
+    send(('inc_msg_cnt', 1), to=monitor_obj)
     output("in perform_fwd_getm : %r" %memory)
 
 
@@ -156,6 +159,7 @@ class MI_PROTO_CACHE(process):
   
    # send data to req,
     send(('data_from_owner',res[0][0],res[0][2]),to=to_process)
+    send(('inc_msg_cnt', 1), to=monitor_obj)
     output("in perform_fwd_gets : %r" %memory)
 
   def perform_invalidation(addr,to_process):
@@ -165,6 +169,7 @@ class MI_PROTO_CACHE(process):
     assert len(res) >0, 'addr_rcvd %r not in cache memory.' % addr
     output('invalidate function. addr_rcvd=%r, state=%r'%(addr,res[0][1]))
     send(('Inv_Ack',addr,to_process),to=to_process)
+    send(('inc_msg_cnt', 1), to=monitor_obj)
     index=memory.index(res[0])
     t=memory.pop(index)
     if t[1] == 'SHARED':
@@ -213,10 +218,12 @@ class MI_PROTO_CACHE(process):
     current_state='READY'
     output("Sending Ack")
     send('completed', to=to_process)
+    send(('inc_msg_cnt', 1), to=monitor_obj)
     output("in perform_load %r"%memory)
     output("value returned to processor =%r" % memory[0][2])
     output('after perform_load mem state=%r,lc=%r'%(memory,logical_clock()))
-    send(('ins', 'load', addr, memory[0][2], self.id,logical_clock()),to=mon_process)
+    send(('ins', 'load', addr, memory[0][2], self.id,logical_clock()),to=monitor_obj)
+    send(('inc_msg_cnt', 1), to=monitor_obj)
 
   def perform_store(addr,to_process,data):
     """ store the value of a particular address in the cache. """
@@ -268,7 +275,7 @@ class MI_PROTO_CACHE(process):
     output("in perform_store %r"%memory)
     output("value written in cache =%r" % memory[0][2])
     output('after perform_store mem state=%r, lc=%r'%(memory,logical_clock()))
-    send(('ins', 'store', addr, memory[0][2], self.id,logical_clock()),to=mon_process)
+    send(('ins', 'store', addr, memory[0][2], self.id,logical_clock()),to=monitor_obj)
   
   def move_I_to_SorE(addr):
     res=[x for x in memory if x[0]==addr]
@@ -285,6 +292,7 @@ class MI_PROTO_CACHE(process):
     assert memory[0][0]==addr,"current addr request should be at he head of memory LRU, but it isn not"
     # inform DC
     send(('GetS',addr),to=dir_ctrlr)
+    send(('inc_msg_cnt', 1), to=monitor_obj)
     # await till state changes
     await(current_state=='SHARED' or current_state=='EXCLUSIVE')
     assert memory[0][1]!='INVALID_SHARED_DATA','memory state corrupted'
@@ -304,6 +312,7 @@ class MI_PROTO_CACHE(process):
     memory.insert(0,(t[0],current_state,t[2]))
     # inform DC
     send(('GetM',addr),to=dir_ctrlr)
+    send(('inc_msg_cnt', 1), to=monitor_obj)
     # await till state changes
     move_IMAD_to_M(addr,data)
     t=memory.pop(0)
@@ -331,6 +340,7 @@ class MI_PROTO_CACHE(process):
     memory.insert(0,(t[0],current_state,t[2]))
     # inform DC
     send(('GetM',addr),to=dir_ctrlr)
+    send(('inc_msg_cnt', 1), to=monitor_obj)
     # await till state changes
     await(current_state=='OWNER_MODIFIED_ACK' or current_state=='MODIFIED' or current_state=='INVALID_MODIFIED_ACK_DATA')
     # output('await passed, addr_rcvd=%r,state=%r'%(addr,current_state))
@@ -363,6 +373,7 @@ class MI_PROTO_CACHE(process):
     memory.insert(0,(t[0],current_state,t[2]))
     # inform DC
     send(('GetM',addr),to=dir_ctrlr)
+    send(('inc_msg_cnt', 1), to=monitor_obj)
     # await till state changes
     await(current_state=='SHARED_MODIFIED_ACK' or current_state=='MODIFIED' or current_state=='INVALID_MODIFIED_ACK_DATA')
     # output('await passed, addr_rcvd=%r,state=%r'%(addr,current_state))
@@ -622,29 +633,17 @@ class MI_PROTO_CACHE(process):
   def receive(msg=('load',addr, p), from_=s):
     self.pending_actions.append(('load',addr, s))
     output("Received LOAD request for addr %s" % addr)
-    # if (1,addr) not in self.memory:
-    #   """ Cache miss logic """
-    #   get_addr(addr)
-    # self.reorder(addr)
-    # print("Sending Ack")
-    # send('completed', to=s)
-  
+ 
   def receive(msg=('store',addr, p, data), from_=s):
     self.pending_actions.append(('store',addr, s, data))
     output("Received STORE request for addr %s" % addr);
-#    if (1,addr) not in self.memory:
-#      """ Cache miss logic """
-#      get_addr(addr)
-#    self.reorder(addr)
-#    print("Sending Ack")
-#    send('completed', to=s)
-  
+ 
   def receive(msg= ('done',)):
     print("Cache Exiting\n")
     exit()
 
 class MI_PROTO_CTRL(process):
-  def setup(cache_protocol_objs):
+  def setup(cache_protocol_objs,monitor_obj):
     self.pending_actions=[]
     self.memory = dict()
     memory['0x11111114']=['INVALID',None,[],212]
@@ -691,6 +690,7 @@ class MI_PROTO_CTRL(process):
     if(len(memory[addr][2])==0):
       memory[addr][0]='INVALID'
     send(('Put_Ack',addr,self.id),to=to_process)
+    send(('inc_msg_cnt', 1), to=monitor_obj)
 
   def perform_putO(addr,to_process,data):
     assert memory[addr]=='OWNER','memory state corrupted, perform_putO'
@@ -705,7 +705,7 @@ class MI_PROTO_CTRL(process):
     else:
       memory[addr][0]='INVALID'
     send(('Put_Ack',addr,self.id),to=to_process)
-
+    send(('inc_msg_cnt', 1), to=monitor_obj)
 
   def perform_putM(addr,to_process,data):
     assert memory[addr]=='MODIFIED','memory state corrupted, perform_putM'
@@ -717,6 +717,7 @@ class MI_PROTO_CTRL(process):
     memory[addr][1]=None
     memory[addr][0]='INVALID'
     send(('Put_Ack',addr,self.id),to=to_process)
+    send(('inc_msg_cnt', 1), to=monitor_obj)
 
   def perform_putE(addr,to_process):
     assert memory[addr]=='EXCLUSIVE','memory state corrupted'
@@ -726,7 +727,7 @@ class MI_PROTO_CTRL(process):
     memory[addr][1]=None
     memory[addr][0]='INVALID'
     send(('Put_Ack',addr,self.id),to=to_process)
-  
+    send(('inc_msg_cnt', 1), to=monitor_obj) 
 
   def perform_getS(addr,to_process):
     # key -value : memory_addr, [state,owner,[sharers],value]
@@ -763,6 +764,8 @@ class MI_PROTO_CTRL(process):
       memory[addr][2].append(to_process)
     else:
       assert False, 'invalid memory state. getS'
+  send(('inc_msg_cnt', 1), to=monitor_obj)
+
 
   def perform_getM(addr,to_process):
     # key -value : memory_addr, [state,owner,[sharers],value]
@@ -771,6 +774,7 @@ class MI_PROTO_CTRL(process):
     if memory[addr][0]=='INVALID':
       # send data_from_dir with ack=0 to req, set owner to req, set state MODIFIED
       send(('data_from_dir',0,addr,memory[addr][3]),to=to_process)
+      send(('inc_msg_cnt', 1), to=monitor_obj)
       memory[addr][1]=to_process
       memory[addr][0]="MODIFIED"
     elif memory[addr][0]=='SHARED':
@@ -781,8 +785,10 @@ class MI_PROTO_CTRL(process):
       if to_process in memory[addr][2]:
         memory[addr][2].remove(to_process)
       send(('data_from_dir',len(memory[addr][2]),addr,memory[addr][3]),to=to_process)
+      send(('inc_msg_cnt', 1), to=monitor_obj)
       output('%r sending inv message to %r (in SHARED)'%(to_process,memory[addr][2]))
       send(('Inv',addr,to_process),to={x for x in memory[addr][2]})
+      send(('inc_msg_cnt', len(memory[addr][2])), to=monitor_obj)
       memory[addr][2]=[]
       memory[addr][1]=to_process
       memory[addr][0]='MODIFIED'
@@ -790,11 +796,13 @@ class MI_PROTO_CTRL(process):
       # forrward getM to owner, set owner to req
       # change state to MODIFIED
       send(('Fwd_GetM',addr,to_process),to=memory[addr][1])
+      send(('inc_msg_cnt', 1), to=monitor_obj)
       memory[addr][1]=to_process
       memory[addr][0]='MODIFIED'
     elif memory[addr][0]=='MODIFIED':
       # forward getM to owner, set owner to req
       send(('Fwd_GetM',addr,to_process),to=memory[addr][1])
+      send(('inc_msg_cnt', 1), to=monitor_obj)
       memory[addr][1]=to_process
     elif memory[addr][0]=='OWNER':
       #in case owner is the requester
@@ -807,11 +815,14 @@ class MI_PROTO_CTRL(process):
         if to_process in memory[addr][2]:
           memory[addr][2].remove(to_process)
         send(('Fwd_GetM',addr,to_process,len(memory[addr][2])),to=memory[addr][1])
+        send(('inc_msg_cnt', 1), to=monitor_obj)
         memory[addr][1]=to_process
       elif to_process==memory[addr][1]:
         send(('ackcount_from_dir',len(memory[addr][2]),addr),to=to_process)
+        send(('inc_msg_cnt', 1), to=monitor_obj)
       output('%r sending inv message to %r (in OWNER)'%(to_process,memory[addr][2]))
       send(('Inv',addr,to_process),to={x for x in memory[addr][2]})
+      send(('inc_msg_cnt', len(memory[addr][2])), to=monitor_obj)
       memory[addr][2]=[]
       memory[addr][0]='MODIFIED'
     else:
@@ -862,17 +873,18 @@ class MI_PROTO_CTRL(process):
     exit()
 
 class Processor(process):
-    def setup(trace, protocol):
+    def setup(trace, protocol,monitor_obj):
       self.keep_waiting = False
       ## self.cache = Cache(protocol, CACHE_SIZE)
     
     def execute(inst):
       if inst[0] == "r":
         send(('load',inst[1] , self.id), to=protocol)
-     
+        send(('inc_msg_cnt', 1), to=monitor_obj)
+
       elif inst[0] == "w":
         send(('store', inst[1], self.id, inst[2]), to=protocol)
-      
+        send(('inc_msg_cnt', 1), to=monitor_obj) 
       else:
         print("Unexpected instruction:", inst);
     
@@ -919,8 +931,6 @@ class Monitor(process):
   def run():
     await(False)
     
-
-  
   def receive(msg= ('done',)):
     print("===Load/Store global order===")
     for ins in instructions:
@@ -932,7 +942,6 @@ class Monitor(process):
     print("CPU time:", cpu_time)
     exit()
 
-
 def main():
     nprocessors = int(sys.argv[1]) if len(sys.argv) > 1 else 2
     proto_name = sys.argv[2] if len(sys.argv) > 2 else 'MI'
@@ -940,7 +949,9 @@ def main():
     trace_dir = sys.argv[3] if len(sys.argv) > 3 else './traces'
 
     config(channel= 'fifo', clock= 'Lamport')
-
+    
+    start_cpu_time = time.process_time()
+    start_elapsed_time = time.perf_counter()
     
     trace = get_traces(trace_dir,nprocessors)
     print(trace)
@@ -958,7 +969,7 @@ def main():
     protocol_objs = new(Proto_cache, num=nprocessors)
     
     ## Setup Protocol for ctrller
-    setup(mem_ctrl_protocol_obj, (protocol_objs,))
+    setup(mem_ctrl_protocol_obj, (protocol_objs,monitor_obj))
     start(mem_ctrl_protocol_obj)
 
     ## Setup Protocols for caches
@@ -973,7 +984,7 @@ def main():
     processors_list = list(processors)
     protocol_objs_list = list(protocol_objs)
     for i in range(nprocessors): 
-      setup(processors_list[i], (trace[i], protocol_objs_list[i]))
+      setup(processors_list[i], (trace[i], protocol_objs_list[i],monitor_obj))
     
     start(processors)
     
@@ -988,7 +999,11 @@ def main():
     da.send(('done',), to= mem_ctrl_protocol_obj)
     for m in mem_ctrl_protocol_obj:
       m.join()
-    
+
+    end_cpu_time = time.process_time()
+    end_elapsed_time = time.perf_counter()
+
+    da.send(('time_taken', end_cpu_time-start_cpu_time, end_elapsed_time-start_elapsed_time), to= monitor_obj)
     da.send(('done',), to= monitor_obj)
     for monitor in monitor_obj:
       monitor.join()
