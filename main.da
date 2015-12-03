@@ -629,6 +629,7 @@ class MI_PROTO_CTRL(process):
     # key -value : memory_addr, [state,owner,[sharers],value]
     assert addr in memory, "address %r not in memory" % addr
     if memory[addr][0]=='INVALID':
+      time.sleep(0.1)
       # send exclusive data to req, set owner to req, set state to exclusive
       send(('exclusive_data_from_dir',addr,memory[addr][3]),to=to_process)
       send(('inc_msg_cnt', 1), to=mon_process)
@@ -669,6 +670,7 @@ class MI_PROTO_CTRL(process):
     assert addr in memory, "address %r not in memory, current memory state %r " % (addr,memory[addr][0]) 
     output("addr_rcvd=%r, state in memory=%r"%(addr,memory[addr][0]))
     if memory[addr][0]=='INVALID':
+      time.sleep(0.1)
       # send data_from_dir with ack=0 to req, set owner to req, set state MODIFIED
       send(('data_from_dir',0,addr,memory[addr][3]),to=to_process)
       send(('inc_msg_cnt', 1), to=mon_process)
@@ -719,6 +721,7 @@ class MI_PROTO_CTRL(process):
 
   def receive(msg= ('PutM',addr,data), from_= p):
     """ Put it in pending queue"""
+    time.sleep(0.1)
     pending_actions.append(('PutM',addr,p,data))
 
   def receive(msg= ('PutE',addr), from_= p):
@@ -727,6 +730,7 @@ class MI_PROTO_CTRL(process):
 
   def receive(msg= ('data',addr,data), from_= p):
     """ Do not queue"""
+    time.sleep(0.1)
     # receiveing data, that means, addr should be in memory
     assert addr in memory, "addr=%r not present in DC memory" % addr
     #assert current_state=='SHARED_DATA','invalid data received'
