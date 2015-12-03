@@ -540,7 +540,18 @@ class MI_PROTO_CACHE(process):
         current_state='MODIFIED'
       memory.insert(0,(t[0],current_state,t[1],ack_cnt))
     elif current_state=='INVALID_MODIFIED_ACK_DATA' and addr==memory[0][0]:
-      assert False,'received inv ack when in IMAD state'
+      ## can occur in the case where cache entry is in S/I->M state and directory is in O->M state.
+      # wait till date from owner (faked data_from_dir is arrived, which tells us ack_cnt) 
+      await(current_state=='INVALID_MODIFIED_ACK')
+      t=memory.pop(0)
+      assert type(t[3]) is int, 'ack_count corrupted'
+      assert t[3]>0,'ack count corrupted <=0'
+      ack_cnt=t[3]
+      ack_cnt-=1      
+      if ack_cnt==0:
+        current_state='MODIFIED'
+      memory.insert(0,(t[0],current_state,t[1],ack_cnt))
+    
     elif current_state=='SHARED_MODIFIED_ACK' and addr==memory[0][0]:
       t=memory.pop(0)
       # output('INV_ACK addr_rcvd=%r, ack_count=%r'%(addr,t[3]))
@@ -932,6 +943,7 @@ def main():
 
     
     trace = get_traces(trace_dir,nprocessors)
+    print(trace)
     Proto_cache, Proto_ctrl = get_proto_class(proto_name)
     
     print('-----START-----')
