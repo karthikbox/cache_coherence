@@ -18,7 +18,7 @@ def get_proto_class(name):
   MSI Protocol class:
 """
 class MSI_PROTO_CACHE(process):
-  def setup(mem_ctrl_protocol_obj, other_protocol_obj, size):
+  def setup(mem_ctrl_protocol_obj, other_protocol_obj, size, monitor_obj):
     self.memory = []
     self.get_from_caches = False
     self.wait_for_caches = False
@@ -51,7 +51,8 @@ class MSI_PROTO_CACHE(process):
         (s, last_addr, val) = self.memory.pop()
         if s == M:
           send(('flush', last_addr, value), to=mem_ctrl_protocol_obj)
-    
+          send(('inc_msg_cnt', 1), to=monitor_obj)
+
     self.memory.insert(0, (state, address, value))
     return value
  
@@ -70,10 +71,12 @@ class MSI_PROTO_CACHE(process):
     if not found:
       wait_for_caches = False;
       send(('loadF', address), to=other_protocol_obj)
+      send(('inc_msg_cnt', len(other_protocol_obj)), to=monitor_obj)
       await(wait_for_caches)
       if not get_from_caches:
         wait_for_memory = False
         send(('get', address), to=mem_ctrl_protocol_obj)
+        send(('inc_msg_cnt', 1), to=monitor_obj)
         await(wait_for_memory)
       else:
         get_from_caches = False
@@ -83,6 +86,7 @@ class MSI_PROTO_CACHE(process):
     self.not_found_q.clear()
     print("Sending Ack")
     send(('completed_load', value), to=p)
+    send(('inc_msg_cnt', 1), to=monitor_obj)
   
   def receive(msg=('store', address, value), from_=p):
     print("Received STORE request for addr %s" % address);
@@ -95,17 +99,20 @@ class MSI_PROTO_CACHE(process):
     
     if found_state == S:
       send(('invalidate', addr), to=other_protocol_obj)
+      send(('inc_msg_cnt', len(other_protocol_obj)), to=monitor_obj)
       """ Do we need wait here ? """
       wait_for_eviction = False
 
     elif found_state == I or found_state == "":
       wait_for_caches = False
       send(('storeF', addr), to=other_protocol_obj)
+      send(('inc_msg_cnt', len(other_protocol_obj)), to=monitor_obj)
       await(wait_for_caches)
       
       if not get_from_caches:
         wait_for_memory = False
         send(('get', addr), to=mem_ctrl_protocol_obj)
+        send(('inc_msg_cnt', 1), to=monitor_obj)
         await(wait_for_memory)
       else:
         get_from_caches = False
@@ -116,6 +123,7 @@ class MSI_PROTO_CACHE(process):
     self.not_found_q.clear()
     print("Sending Ack")
     send(('completed_store', value), to=p)
+    send(('inc_msg_cnt', 1), to=monitor_obj)
     print('reaching here store')
   
   def receive(msg= ('done',)):
@@ -139,15 +147,19 @@ class MSI_PROTO_CACHE(process):
 
     if found_state == M:
       i = self.memory.index((found_state, address, found_value))
-      self.memory[i][0] = S
+      self.memory[i] = (S, self.memory[i][1], self.memory[i][2]) 
       send(('flush', address, found_value), to=mem_ctrl_protocol_obj)
+      send(('inc_msg_cnt', 1), to=monitor_obj)
       send(('found_in_cache', address, found_value), to=p)
+      send(('inc_msg_cnt', 1), to=monitor_obj)
 
     elif found_state == S:
       send(('found_in_cache', address, found_value), to=p)
+      send(('inc_msg_cnt', 1), to=monitor_obj)
     
     else:
       send(('not_found_in_cache', address), to=p)
+      send(('inc_msg_cnt', 1), to=monitor_obj)
 
   def receive(msg= ('storeF',address), from_= p):
     """ Add time delay here to mimic cache-to-cache latency """
@@ -166,13 +178,15 @@ class MSI_PROTO_CACHE(process):
 
     if found_state == M:
       i = self.memory.index((found_state, address, found_value))
-      self.memory[i][0] = I 
+      self.memory[i] = (I, self.memory[i][1], self.memory[i][2]) 
       send(('flush', address, found_value), to=mem_ctrl_protocol_obj)
+      send(('inc_msg_cnt', 1), to=monitor_obj)
       send(('found_in_cache', address, found_value), to=p)
+      send(('inc_msg_cnt', 1), to=monitor_obj)
 
     elif found_state == S:
       i = self.memory.index((found_state, address, found_value))
-      self.memory[i][0] = I 
+      self.memory[i] = (I, self.memory[i][1], self.memory[i][2]) 
       send(('found_in_cache', address, found_value), to=p)
     
     else:
@@ -214,7 +228,7 @@ class MSI_PROTO_CACHE(process):
     wait_for_memory = True
 
 class MSI_PROTO_CTRL(process):
-  def setup(cache_protocol_objs):
+  def setup(cache_protocol_objs, monitor_obj):
     self.memory = dict()
   
   def run():
@@ -225,13 +239,15 @@ class MSI_PROTO_CTRL(process):
 
   def receive(msg= ('get',addr), from_= p):
     """ Add time delay here to mimic cache-to-memory latency """
-    #time.sleep(3)
     if addr not in self.memory:
         self.memory[addr] = 0
         
+    time.sleep(0.1)
     send(('found_in_memory', addr, self.memory[addr]), to=p)
+    send(('inc_msg_cnt', 1), to=monitor_obj)
 
   def receive(msg= ('flush', addr, value)):
+    time.sleep(0.1)
     self.memory[addr] = value
 
   def receive(msg= ('done',)):
@@ -239,7 +255,7 @@ class MSI_PROTO_CTRL(process):
     exit()
 
 class Processor(process):
-    def setup(trace, protocol):
+    def setup(trace, protocol, monitor_obj):
       self.keep_waiting = False
       ## self.cache = Cache(protocol, CACHE_SIZE)
     
@@ -247,9 +263,11 @@ class Processor(process):
       type, addr, value = inst
       if type == "r":
         send(('load', addr), to=protocol)
+        send(('inc_msg_cnt', 1), to=monitor_obj)
      
       elif type == "w":
         send(('store', addr, value), to=protocol)
+        send(('inc_msg_cnt', 1), to=monitor_obj)
       
       else:
         print("Unexpected instruction:", inst);
@@ -283,20 +301,51 @@ def get_traces(trace_file):
            ('r', '0x11111117', 0),
            ('r', '0x11111111', 0)
           ],
-          """
+          
           [
-           ('r', '0x11111117'),
-           ('r', '0x11111114'),
-           ('w', '0x11111118')
+           ('r', '0x11111117', 0),
+           ('r', '0x11111114', 0),
+           ('w', '0x11111118', 0)
           ],
 
           [
-           ('r', '0x11111112'),
-           ('w', '0x11111116'),
-           ('r', '0x11111113')
+           ('r', '0x11111112', 0),
+           ('w', '0x11111116', 0),
+           ('r', '0x11111113', 0)
           ]
-          """
          ]
+
+class Monitor(process):
+  def setup():
+    self.instructions = []
+    self.total_msgs = 0
+    self.cpu_time = 0
+    self.elapsed_time = 0
+
+  def receive(msg= ('ins', type, addr, value, cache_id)):
+    instructions.append((type, addr, value, cache_id))
+
+  def receive(msg= ('inc_msg_cnt', value)):
+    total_msgs = total_msgs + value
+  
+  def receive(msg= ('time_taken', cpu, elapsed)):
+    cpu_time = cpu
+    elapsed_time = elapsed 
+
+  def run():
+    await(False)
+
+  def receive(msg= ('done',)):
+    print("Total msg count:", total_msgs)
+    for ins in instructions:
+      print(ins[3], ": ", ins[0], ins[1], ins[2])
+    #print("CTRL Exiting\n")
+    
+    print("===Benchmarks===")
+    print("Total msg count:", total_msgs)
+    print("Elapsed time:", elapsed_time)
+    print("CPU time:", cpu_time)
+    exit()
 
 def main():
     nprocessors = int(sys.argv[1]) if len(sys.argv) > 1 else 2
@@ -305,21 +354,27 @@ def main():
     trace_file = sys.argv[3] if len(sys.argv) > 3 else 'none'
 
     config(channel= 'fifo', clock= 'Lamport')
-    
+    start_cpu_time = time.process_time()
+    start_elapsed_time = time.perf_counter()
+
     trace = get_traces(trace_file)
     Proto_cache, Proto_ctrl = get_proto_class(proto_name)
+    
+    monitor_obj = new(Monitor, num=1)
+    setup(monitor_obj, ())
+    start(monitor_obj)
     
     ## Initialize protocol objs for caches and controller
     mem_ctrl_protocol_obj = new(Proto_ctrl, num=1)
     protocol_objs = new(Proto_cache, num=nprocessors)
     
     ## Setup Protocol for ctrller
-    setup(mem_ctrl_protocol_obj, (protocol_objs,))
+    setup(mem_ctrl_protocol_obj, (protocol_objs, monitor_obj))
     start(mem_ctrl_protocol_obj)
 
     ## Setup Protocols for caches
     for proto_obj in protocol_objs:
-      setup(proto_obj, (mem_ctrl_protocol_obj, protocol_objs - {proto_obj}, CACHE_SIZE))
+      setup(proto_obj, (mem_ctrl_protocol_obj, protocol_objs - {proto_obj}, CACHE_SIZE, monitor_obj))
       start(proto_obj)
 
     ## Setup Processors
@@ -329,7 +384,7 @@ def main():
     processors_list = list(processors)
     protocol_objs_list = list(protocol_objs)
     for i in range(nprocessors): 
-      setup(processors_list[i], (trace[i], protocol_objs_list[i]))
+      setup(processors_list[i], (trace[i], protocol_objs_list[i], monitor_obj))
     
     start(processors)
     
@@ -344,5 +399,14 @@ def main():
     da.send(('done',), to= mem_ctrl_protocol_obj)
     for m in mem_ctrl_protocol_obj:
       m.join()
+    
+    end_cpu_time = time.process_time()
+    end_elapsed_time = time.perf_counter()
+    da.send(('time_taken', end_cpu_time-start_cpu_time, end_elapsed_time-start_elapsed_time), to= monitor_obj)
+    
+    da.send(('done',), to= monitor_obj)
+    for monitor in monitor_obj:
+      monitor.join() 
+
     print('-----END-----')
 
