@@ -1,5 +1,6 @@
 import sys
 import time
+import os 
 
 ENOTSUPP = 2
 CACHE_SIZE = 512
@@ -47,7 +48,7 @@ class MSI_PROTO_CACHE(process):
     if not found:
       """ Check if the cache is full """
       if len(self.memory) == size:
-        print("Cache is full")
+        # print("Cache is full")
         (s, last_addr, val) = self.memory.pop()
         if s == M:
           send(('flush', last_addr, value), to=mem_ctrl_protocol_obj)
@@ -57,7 +58,7 @@ class MSI_PROTO_CACHE(process):
     return value
  
   def receive(msg=('load', address), from_=p):
-    print("Received LOAD request for addr %s" % address);
+    ## print("Received LOAD request for addr %s" % address);
     found = False
     value = ""
     state = I
@@ -84,12 +85,13 @@ class MSI_PROTO_CACHE(process):
 
     value = self.reorder(state, address, '')
     self.not_found_q.clear()
-    print("Sending Ack")
+    ## print("Sending Ack")
+    send(('ins', 'loaded', address, value, self.id), to=monitor_obj)
     send(('completed_load', value), to=p)
     send(('inc_msg_cnt', 1), to=monitor_obj)
   
   def receive(msg=('store', address, value), from_=p):
-    print("Received STORE request for addr %s" % address);
+    ## print("Received STORE request for addr %s" % address);
     found_state = ""  
 
     for (s, addr, val) in self.memory:
@@ -105,13 +107,13 @@ class MSI_PROTO_CACHE(process):
 
     elif found_state == I or found_state == "":
       wait_for_caches = False
-      send(('storeF', addr), to=other_protocol_obj)
+      send(('storeF', address), to=other_protocol_obj)
       send(('inc_msg_cnt', len(other_protocol_obj)), to=monitor_obj)
       await(wait_for_caches)
       
       if not get_from_caches:
         wait_for_memory = False
-        send(('get', addr), to=mem_ctrl_protocol_obj)
+        send(('get', address), to=mem_ctrl_protocol_obj)
         send(('inc_msg_cnt', 1), to=monitor_obj)
         await(wait_for_memory)
       else:
@@ -121,20 +123,20 @@ class MSI_PROTO_CACHE(process):
 
     self.reorder(state, address, value)
     self.not_found_q.clear()
-    print("Sending Ack")
+    ## print("Sending Ack")
+    send(('ins', 'stored', address, value, self.id), to=monitor_obj)
     send(('completed_store', value), to=p)
     send(('inc_msg_cnt', 1), to=monitor_obj)
-    print('reaching here store')
+    ## print('reaching here store')
   
   def receive(msg= ('done',)):
-    print("Cache Exiting\n")
+    ## print("Cache Exiting\n")
     exit()
   
   def receive(msg= ('loadF',address), from_= p):
     """ Add time delay here to mimic cache-to-cache latency """
-    time.sleep(1)
-    print("Cache request for address: %s", address)
-    print(self.memory)
+    ## print("Cache request for address: %s", address)
+    ## print(self.memory)
     
     found_state = ""
     found_value = ""
@@ -163,9 +165,8 @@ class MSI_PROTO_CACHE(process):
 
   def receive(msg= ('storeF',address), from_= p):
     """ Add time delay here to mimic cache-to-cache latency """
-    time.sleep(1)
-    print("Cache request for address: ", address)
-    print(self.memory)
+    ## print("Cache request for address: ", address)
+    ## print(self.memory)
     
     found_state = ""
     found_value = ""
@@ -199,7 +200,7 @@ class MSI_PROTO_CACHE(process):
         break
   
   def receive(msg=('found_in_cache', address, value)):
-    print("Addr:", address, "received from another cache with value:", value)
+    ## print("Addr:", address, "received from another cache with value:", value)
     for i in range(len(self.memory)):
       if self.memory[i][1] == address:
         self.memory[i] = (self.memory[i][0], address, value)
@@ -210,12 +211,12 @@ class MSI_PROTO_CACHE(process):
   def receive(msg=('not_found_in_cache', address)):
     self.not_found_q.append("recvd_not_found")
     if len(self.not_found_q) == len(other_protocol_obj):
-      print("Addr", address, "not found in the other caches")
+      ## print("Addr", address, "not found in the other caches")
       get_from_caches = False
       wait_for_caches = True 
 
   def receive(msg=('found_in_memory', address, value)):
-    print("Addr:", address, "received from Memory with value:", value)
+    ## print("Addr:", address, "received from Memory with value:", value)
     for i in range(len(self.memory)):
       if self.memory[i][1] == address:
         self.memory[i] = (self.memory[i][0], address, value)
@@ -224,7 +225,7 @@ class MSI_PROTO_CACHE(process):
     wait_for_memory = True
 
   def receive(msg=('not_found_in_memory')):
-    print("Addr not found in memory")
+    ## print("Addr not found in memory")
     wait_for_memory = True
 
 class MSI_PROTO_CTRL(process):
@@ -251,7 +252,7 @@ class MSI_PROTO_CTRL(process):
     self.memory[addr] = value
 
   def receive(msg= ('done',)):
-    print("CTRL Exiting\n")
+    ## print("CTRL Exiting\n")
     exit()
 
 class Processor(process):
@@ -260,12 +261,13 @@ class Processor(process):
       ## self.cache = Cache(protocol, CACHE_SIZE)
     
     def execute(inst):
-      type, addr, value = inst
-      if type == "r":
+      if inst[0] == "r":
+        type, addr = inst
         send(('load', addr), to=protocol)
         send(('inc_msg_cnt', 1), to=monitor_obj)
      
-      elif type == "w":
+      elif inst[0] == "w":
+        type, addr, value = inst
         send(('store', addr, value), to=protocol)
         send(('inc_msg_cnt', 1), to=monitor_obj)
       
@@ -278,42 +280,31 @@ class Processor(process):
         execute(inst)
         await(keep_waiting)
 
-      print("Processor Exits")
+      ## print("Processor Exits")
 
     def receive(msg= ('completed_load', value)):
-      print("ACKed load\n", value)
+      ## print("ACKed load\n", value)
       keep_waiting = True
 
     def receive(msg= ('completed_store', value)):
-      print("ACKed store\n", value)
+      ## print("ACKed store\n", value)
       keep_waiting = True
 
-def get_traces(trace_file):
-  return [
-          [
-           ('r', '0x11111111', 0),
-           ('w', '0x11111111', 3),
-           ('w', '0x11111113', 10)
-          ],
-
-          [
-           ('r', '0x11111114', 0),
-           ('r', '0x11111117', 0),
-           ('r', '0x11111111', 0)
-          ],
-          
-          [
-           ('r', '0x11111117', 0),
-           ('r', '0x11111114', 0),
-           ('w', '0x11111118', 0)
-          ],
-
-          [
-           ('r', '0x11111112', 0),
-           ('w', '0x11111116', 0),
-           ('r', '0x11111113', 0)
-          ]
-         ]
+def get_traces(trace_dir,nprocs):
+  """ 
+  Extracts the execution traces from the given directory.
+  Reference: Karthik Reddy (https://github.com/karthikbox/cache_coherence/blob/mesi_protocol/main.da)
+  """ 
+  
+  trace=[]
+  for i in range(nprocs):
+    trace_filename='p'+str(i)+'.trace'
+    f=open(os.path.join(trace_dir,trace_filename))
+    insts=[]
+    for line in f:    
+      insts.append(line.split())
+      trace.append(insts)
+  return trace
 
 class Monitor(process):
   def setup():
@@ -337,6 +328,7 @@ class Monitor(process):
 
   def receive(msg= ('done',)):
     print("Total msg count:", total_msgs)
+    print("===Load/Store global order===")
     for ins in instructions:
       print(ins[3], ": ", ins[0], ins[1], ins[2])
     #print("CTRL Exiting\n")
@@ -357,7 +349,7 @@ def main():
     start_cpu_time = time.process_time()
     start_elapsed_time = time.perf_counter()
 
-    trace = get_traces(trace_file)
+    trace = get_traces("traces", nprocessors)
     Proto_cache, Proto_ctrl = get_proto_class(proto_name)
     
     monitor_obj = new(Monitor, num=1)
