@@ -1,27 +1,51 @@
+"""
+MOESI cache coherence protocol implementation in DistAlgo
+based on the online implementation - https://github.com/samuelbritt/CS6290-prj3
+To implement the protocol in DistAlgo, I am using directory-based protocol logic.
+Note: The basic structural view for the protocol is same for our group and hence certain classes/methods
+      which are common to all protocols is part of the intial setup. The other members of the group are
+      Parag Gupta, Karthik Reddy, Garima Gehlot and Paul Mathew.
+      Particularly for MOESI protocol, I am working for Karthik Reddy for MESI protocol implementation
+      as their are some minor changes to be done to convert MESI->MOESI protocol.
+      So, majorly the code with Karthik Reddy will be same excluding the explicit changes I need to do 
+      to make it MOESI protocol.
+"""
+
 import sys
 import time
 import os
+from termcolor import colored
+
 
 ENOTSUPP = 2
 CACHE_SIZE = 512
 
 def get_proto_class(name):
-  if name == "MI":
-    return (eval("MI_PROTO_CACHE"), eval("MI_PROTO_CTRL"))
+  if name == "MOESI":
+    return (eval("MOESI_Cache"), eval("MOESI_Directory"))
   else:
     exit(-ENOTSUPP)
 
-## Exemplary implementation of PROTOCOL Classes
 """
-  MI Protocol class:
+  MOESI Protocol class:
 """
-class MI_PROTO_CACHE(process):
+class MOESI_Cache(process):
+  """
+  This class denotes the object for the local- cache corresponding a particular processor.
+  It contains the main logic for handling 5 states of the protocol and is responsible for the state 
+  transitions for the cache data entries.
+  The implementation is based on the state transitions as explained in the following mentioned book (Chapter 8).
+  Reference : Sorin, Daniel J., Mark D. Hill, and David A. Wood. "A primer on memory consistency and 
+  cache coherence." Synthesis Lectures on Computer Architecture 6.3 (2011): 1-212.
+  Book doesn't contain the state diagram/machine for MOESI protocol, but understanding the MESI and MOSI protocol 
+  clearly helped me to create a state machine for MOESI protocol together with some brain-storming sessions with 
+  Karthik Reddy.
+  """
   def setup(dir_ctrlr, other_caches, size,monitor_obj):
     self.memory = []
     
     self.pending_actions=[]
     self.current_state="READY"
-    
     
   def run():
     while(1):
@@ -37,7 +61,7 @@ class MI_PROTO_CACHE(process):
     inst=t[0]
     addr=t[1]
     to_process=t[2]
-    #possible instructions are : loads,stores, invalidate
+    
     if inst=='inv':
       perform_invalidation(addr,to_process)
     elif inst=='load':
@@ -55,7 +79,6 @@ class MI_PROTO_CACHE(process):
  
 
   def perform_replacement(t):
-    # check that the tuple is a not an INVALID entry
     assert t[1]!='INVALID',"invalid state in replacement"
     # the current_state should be ready for eviction
     assert current_state=='READY', "invalid current_state in replacement"
@@ -100,9 +123,8 @@ class MI_PROTO_CACHE(process):
     assert len(res)>0,'address not in memory. Fwd_getM. addr_rvd=%r' %addr
     assert res[0][1]!='INVALID','address in INVALID state Fwd_getS.'
     assert res[0][1]!='SHARED','address in SHARED state Fwd_getS.'
-    # handle EXCLUSIVE and MODIFIED both
-    # get index of the mem tuple from memory
-    # pop that tyuple, insert new tuple at index again, new tuple's state changed to SHARED
+    # get index of the cache memory tuple from memory
+    # pop that tuple, insert new tuple at index again, new tuple's state changed to SHARED
     # mem tuple will not be at the head of the LRU
     index=memory.index(res[0])
     t=memory.pop(index)
@@ -112,7 +134,6 @@ class MI_PROTO_CACHE(process):
       memory.insert(index,(t[0],'INVALID_INVALID_ACK',t[2]))
       current_state='INVALID_INVALID_ACK'   
     elif t[1]=='OWNER':
-      #current_state='INVALID'
       memory.insert(index,(t[0],'INVALID',t[2]))
     elif t[1]=='OWNER_MODIFIED_ACK_COUNT':
       current_state='INVALID_MODIFIED_ACK_DATA'
@@ -136,10 +157,9 @@ class MI_PROTO_CACHE(process):
     output("in perform_fwd_getS begin: %r" %memory)
     res=[x for x in memory if x[0]==addr]
     assert len(res)>0,'address not in memory. Fwd_getS. addr_rvd=%r' %addr
-    #if res[0][1] in ['EXCLUSIVE','MODIFIED','EXCLUSIVE_INVALID_ACK','MODIFIED_INVALID_ACK']: 
-    #  send(('data',res[0][0],res[0][2]),to=dir_ctrlr)
-    # get index of the mem tuple from memory
-    # pop that tyuple, insert new tuple at index again, new tuple's state changed to SHARED
+    # get index of the cache memory tuple from memory
+    # pop that tuple, insert new tuple at index again, 
+    # new tuple's state changed to different states as per state transition diagram
     # mem tuple will not be at the head of the LRU
     index=memory.index(res[0])
     t=memory.pop(index)
@@ -153,10 +173,8 @@ class MI_PROTO_CACHE(process):
     elif t[1]=='EXCLUSIVE_INVALID_ACK':
       memory.insert(index,(t[0],'SHARED_INVALID_ACK',t[2]))
       current_state='SHARED_INVALID_ACK'
-    #elif t[1] in ['OWNER','OWNER_MODIFIED_ACK_COUNT','OWNER_MODIFIED_ACK','OWNER_INVALID_ACK']:
     else:
       memory.insert(index,t)
-  
    # send data to req,
     send(('data_from_owner',res[0][0],res[0][2]),to=to_process)
     send(('inc_msg_cnt', 1), to=monitor_obj)
@@ -164,9 +182,8 @@ class MI_PROTO_CACHE(process):
 
   def perform_invalidation(addr,to_process):
     """ Invalidate memory, send Inv_Ack to the caches."""
-    # state should be SHARED
     res=[x for x in memory if x[0]==addr ]
-    assert len(res) >0, 'addr_rcvd %r not in cache memory.' % addr
+    assert len(res)>0, 'addr_rcvd %r not in cache memory.' % addr
     output('invalidate function. addr_rcvd=%r, state=%r'%(addr,res[0][1]))
     send(('Inv_Ack',addr,to_process),to=to_process)
     send(('inc_msg_cnt', 1), to=monitor_obj)
@@ -183,7 +200,6 @@ class MI_PROTO_CACHE(process):
     else:
       assert False,"invalid state in perform_invalidation"
     output("in perform_inv %r"%memory)
-
 
   def perform_load(addr,to_process):
     """ load the value of a particular address in the cache. """
@@ -206,7 +222,7 @@ class MI_PROTO_CACHE(process):
       else:
         assert False, "invalid state %r" % res[0][2]
     else:
-      # addr iis not present in memory
+      # addr is not present in memory
       # add addr to memory.
       # add_to_memory, adds new item to the HEAD of memory list with an INVALID state
       add_to_memory((addr,'INVALID',0))
@@ -233,15 +249,15 @@ class MI_PROTO_CACHE(process):
     if len(res)>0:
       # if address in present in cache
       if res[0][1]=='INVALID':
-	# move this addr to the head of the memory list, update LRU
+	      # move this addr to the head of the memory list, update LRU
         update_lru_position_of(res[0])
         # make transition from I to M
         current_state='INVALID'
         move_I_to_M(addr,data)
       elif res[0][1]=='SHARED':
-	# move to head, update LRU
+      	# move to head, update LRU
         update_lru_position_of(res[0])
-	# make S to M transition
+	      # make S to M transition
         current_state='SHARED'
         move_S_to_M(addr,data)
       elif res[0][1] =='MODIFIED':
@@ -278,6 +294,19 @@ class MI_PROTO_CACHE(process):
     send(('ins', 'store', addr, memory[0][2], self.id,logical_clock()),to=monitor_obj)
   
   def move_I_to_SorE(addr):
+    """ 
+    We have some cases when transitioning from state 'I' based on the state of data in directory class.
+    If State of same data in Directory is :-
+      a) S : Directory state will remain in S state and I->S transition will occur in Cache.
+      b) M : Directory will forward the load msg to Owner Cache of data entry, Owner state from M/E -> S and 
+             it will reply to Dir and current Cache with "DatafromOwner" msg.
+      c) O : Directory will forward the load msg to Owner Cache of data entry, Owner state from M/O -> O and 
+             it will reply to Dir and current Cache with "DatafromOwner" msg.      
+    """
+    """
+      If the Directory entry is in state 'I',
+      Directory transition from I->E and and cache transition from I->E using the "ExclDatafromDir" msg from Directory class.
+    """
     res=[x for x in memory if x[0]==addr]
     assert len(res)>0,"couldnt find addr in memory"
     assert memory[0][0]==addr,"current addr request should be at he head of memory LRU, but it isn not"
@@ -285,7 +314,6 @@ class MI_PROTO_CACHE(process):
     # addr_t,state_t,val_t=memory.pop(0)
     # memory.insert(0,(addr_t,'SHARED',val_t))
     # when in INVALID, on load, send getS to DC and goto ISD
-    # possible msgs to be recevied: ('exclusive_data_from_dir'),('data_from_dir',ack=0),('data_from_owner')
     current_state='INVALID_SHARED_DATA'
     t=memory.pop(0)
     memory.insert(0,(t[0],current_state,t[2]))
@@ -299,6 +327,18 @@ class MI_PROTO_CACHE(process):
     return
   
   def move_I_to_M(addr,data):
+    """
+    Processing of the write request.
+    If the state of the data entry in Directory is :-
+      a) I : Directory transition from I->M and and cache transition from I->M using the "DatafromDirAck0" msg from Directory class.
+      b) M : Directory transition from M/E->M with msg forwarding to Owner Cache of data entry, Owner state from M/E -> I and 
+             it will reply to Dir and current Cache with "DatafromDirAck0" msg.
+      c) S : Directory transition from S->M with Inv broadcast to all the caches having the data entry. Caches will also 
+             make transition from S->I and sends Inv-Ack to current Cache with "DatafromOwner" msg.
+      d) O : Directory transition from O->M with Inv broadcast to all the caches having the data entry with S state and 
+             fwd-GetM message to the previous owner of the data entry. Sharer caches will also  make transition from S->I and
+             sends Inv-Ack and Owner cache will send DatafromDirAck0 message to requesting Cache.
+    """
     res=[x for x in memory if x[0]==addr]
     assert len(res)>0,"couldnt find addr in memory"
     assert memory[0][0]==addr,"current addr request should be at he head of memory LRU, but it isn't not"
@@ -306,7 +346,6 @@ class MI_PROTO_CACHE(process):
     # addr_t,state_t,val_t=memory.pop(0)
     # memory.insert(0,(addr_t,'SHARED',val_t))
     # when in INVALID, on load, send getS to DC and goto ISD
-    # possible msgs to be recevied: ('exclusive_data_from_dir'),('data_from_dir',ack=0),('data_from_owner')
     current_state='INVALID_MODIFIED_ACK_DATA'
     t=memory.pop(0)
     memory.insert(0,(t[0],current_state,t[2]))
@@ -331,6 +370,11 @@ class MI_PROTO_CACHE(process):
     return
 
   def move_O_to_M(addr,data):
+    """
+    Cache entry will be in O state when Directory entry is in O state. This will cause Directory to send Inv request to all sharer caches.
+    Sharer caches will make S->I transition and send Inv-Ack to requesting cache. Directory will also send AckCount msg to requesting cache 
+    which will help the requesting cache to wait till AckCount.
+    """
     res=[x for x in memory if x[0]==addr]
     assert len(res)>0,"couldnt find addr in memory, OtoM"
     assert memory[0][0]==addr,"current addr request should be at the head of memory LRU, but it isn't not, OtoM"
@@ -343,20 +387,17 @@ class MI_PROTO_CACHE(process):
     send(('inc_msg_cnt', 1), to=monitor_obj)
     # await till state changes
     await(current_state=='OWNER_MODIFIED_ACK' or current_state=='MODIFIED' or current_state=='INVALID_MODIFIED_ACK_DATA')
-    # output('await passed, addr_rcvd=%r,state=%r'%(addr,current_state))
     assert memory[0][1]!='OWNER_MODIFIED_ACK_COUNT','memory state corrupted, OtoM'
     if current_state=='MODIFIED':
-      # do nothing
       pass
     elif current_state=='OWNER_MODIFIED_ACK':
-      # in SMA state, wait till modified state(receive all acks)
+      # in OMA state, wait till modified state(receive all acks)
       await(current_state=='MODIFIED')
     elif current_state=='INVALID_MODIFIED_ACK_DATA':
       move_IMAD_to_M(addr,data)
     else:
       assert False,'invalid state=%r in O to M' % current_state
     # write data
-    # output(memory[0])
     t=memory.pop(0)
     assert t[1]==current_state,'memory state corrupted. OtoM'
     memory.insert(0,(t[0],current_state,data))
@@ -364,6 +405,14 @@ class MI_PROTO_CACHE(process):
 
 
   def move_S_to_M(addr,data):
+    """
+    Two Cases :-
+      a) Directory transition from S->M with Inv broadcast to all the caches having the data entry. Caches will also 
+         make transition from S->I and sends Inv-Ack to current Cache with "DatafromOwner" msg.
+      b) Directory transition from O->M with Inv broadcast to all the caches having the data entry with S state and 
+         fwd-GetM message to the previous owner of the data entry. Sharer caches will also  make transition from S->I and
+         sends Inv-Ack and Owner cache will send DatafromDirAck0 message to requesting Cache.
+    """
     res=[x for x in memory if x[0]==addr]
     assert len(res)>0,"couldnt find addr in memory"
     assert memory[0][0]==addr,"current addr request should be at he head of memory LRU, but it isn't not"
@@ -379,19 +428,14 @@ class MI_PROTO_CACHE(process):
     # output('await passed, addr_rcvd=%r,state=%r'%(addr,current_state))
     assert memory[0][1]!='SHARED_MODIFIED_ACK_DATA','memory state corrupted'
     if current_state=='MODIFIED':
-      # do nothing
       pass
     elif current_state=='SHARED_MODIFIED_ACK':
       # in SMA state, wait till modified state(receive all acks)
-      # output('SMA in')
       await(current_state=='MODIFIED')
-      # output('SMA out')
     elif current_state=='INVALID_MODIFIED_ACK_DATA':
       move_IMAD_to_M(addr,data)
     else:
       assert False,'invalid state=%r in S to M' % current_state
-    # write data
-    # output(memory[0])
     t=memory.pop(0)
     assert t[1]==current_state,'memory state corrupted. StoM'
     memory.insert(0,(t[0],current_state,data))
@@ -412,7 +456,7 @@ class MI_PROTO_CACHE(process):
 
   def add_to_memory(t):
     """ add tuple t to the head of memory list. format of tuple t = (address,state,value) """
-    # check size of memory, if >= CACHE_SIZE, pop the last element and add the new tuple at the head
+    # check size of memory, if size>= CACHE_SIZE, pop the last element and add the new tuple at the head
     # otherwise, insert at head directly
     if len(memory) >= CACHE_SIZE:
       popped=memory[len(memory)-1]
@@ -436,15 +480,11 @@ class MI_PROTO_CACHE(process):
     memory.remove(t)
     memory.insert(0,t)
 
-# STATES : message handlers written
-# INVALID_SHARED_DATA : 
-# to_handle(exclusive_data_from_dir, data_from_dir, data_from_owner)
-# stall(invalidate,replacement)
-  
 
   def receive(msg=('exclusive_data_from_dir',addr,val_rvd), from_=s):
-#     print ("addr rcvd=%r   addr required=%r" %(addr,memory[0][0]))
-#     print("state=%r  mem state=%r" %(current_state,memory[0][1]))
+    """ 
+    Exclusive data msg from the Directory to cache when none of the caches contain requesting data entry, hence I->E is done 
+    """
     if current_state=='INVALID_SHARED_DATA' and addr==memory[0][0]:
       # move to EXCLUSIVE state, update the state in memory for the address
       current_state='EXCLUSIVE'
@@ -457,7 +497,6 @@ class MI_PROTO_CACHE(process):
 
   def receive(msg=('ackcount_from_dir',ack,addr), from_=s):
     res = [ x for x in memory if x[0]==addr]
-#    output("%r in ackcount_from_dir" %res[0])
     assert len(res)>0,"couldnt find addr in memory"
     assert memory[0][0]==addr,"current addr request should be at he head of memory LRU, but it isn't not, ackcount_from_dir"
     assert res[0][1]==current_state,"memory state corrupted, current_state : %r and res[0][0] : %r" %(current_state,res[0][0])
@@ -539,10 +578,8 @@ class MI_PROTO_CACHE(process):
   
   def receive(msg=('Inv_Ack',addr,p), from_=s):
     # state has to be in INVALID_MODIFIED_ACK
-    # output('inv-ack')
     if current_state=='INVALID_MODIFIED_ACK' and addr==memory[0][0]:
       t=memory.pop(0)
-      # output('addr_rcvd=%r, ack_count=%r'%(addr,t[3]))
       assert type(t[3]) is int, 'ack_count corrupted'
       assert t[3] >0,'ack count corrupted <=0'
       ack_cnt=t[3]
@@ -565,7 +602,6 @@ class MI_PROTO_CACHE(process):
     
     elif current_state=='SHARED_MODIFIED_ACK' and addr==memory[0][0]:
       t=memory.pop(0)
-      # output('INV_ACK addr_rcvd=%r, ack_count=%r'%(addr,t[3]))
       assert type(t[3]) is int, 'ack_count corrupted'
       assert t[3] >0,'ack count corrupted <=0'
       ack_cnt=t[3]
@@ -577,7 +613,6 @@ class MI_PROTO_CACHE(process):
       assert False,'received inv ack when in SMAD state'
     elif current_state=='OWNER_MODIFIED_ACK' and addr==memory[0][0]:
       t=memory.pop(0)
-      # output('INV_ACK addr_rcvd=%r, ack_count=%r'%(addr,t[3]))
       assert type(t[3]) is int, 'ack_count corrupted, OMA'
       assert t[3]>0,'ack count corrupted <=0'
       ack_cnt=t[3]
@@ -592,15 +627,12 @@ class MI_PROTO_CACHE(process):
 
 
   def receive(msg=('Inv',addr,p), from_=s):
-    # handled for I,ISD,IMAD,IMA
     res=[x for x in memory if x[0]==addr]
     assert len(res)>0,'addr_rcvd=%r not in memory'%addr
-    # output('inv msg rcvd for address=%r, state=%r'%(addr,res[0][1]))
     if(res[0][1]=='SHARED'):
       perform_invalidation(addr,p)
     elif(res[0][1]=='SHARED_MODIFIED_ACK_DATA'):
       perform_invalidation(addr,p)
-    # handle SIA
     elif(res[0][1]=='SHARED_INVALID_ACK'):
       perform_invalidation(addr,p)
     else:
@@ -608,7 +640,6 @@ class MI_PROTO_CACHE(process):
     
 
   def receive(msg=('Fwd_GetS',addr,p), from_=s):
-    # handled for I,ISD,IMAD,IMA
     res=[x for x in memory if x[0]==addr]
     if res[0][1] in ['EXCLUSIVE','MODIFIED','EXCLUSIVE_INVALID_ACK','MODIFIED_INVALID_ACK','OWNER','OWNER_MODIFIED_ACK_COUNT','OWNER_MODIFIED_ACK']:
       perform_fwd_gets(addr,p)
@@ -616,7 +647,6 @@ class MI_PROTO_CACHE(process):
       pending_actions.append(('fwd_gets',addr,p))
 
   def receive(msg=('Fwd_GetM',addr,p), from_=s):
-    # handled for I,ISD,IMAD,IMA
     res=[x for x in memory if x[0]==addr]
     if res[0][1] in ['EXCLUSIVE','MODIFIED','EXCLUSIVE_INVALID_ACK','MODIFIED_INVALID_ACK','OWNER_MODIFIED_ACK_COUNT']:
       perform_fwd_getm(addr,p,0)
@@ -624,11 +654,9 @@ class MI_PROTO_CACHE(process):
       pending_actions.append(('fwd_getm',addr,p))
 
   def receive(msg=('Fwd_GetM',addr,p,ack), from_=s):
-    # handled for I,ISD,IMAD,IMA
     res=[x for x in memory if x[0]==addr]
     if res[0][1] in ['OWNER','OWNER_MODIFIED_ACK_COUNT']:
       perform_fwd_getm(addr,p,ack)
-
 
   def receive(msg=('load',addr, p), from_=s):
     self.pending_actions.append(('load',addr, s))
@@ -642,7 +670,17 @@ class MI_PROTO_CACHE(process):
     print("Cache Exiting\n")
     exit()
 
-class MI_PROTO_CTRL(process):
+class MOESI_Directory(process):
+  """
+  MOESI directory controller class.
+  This class simulates the shared directory between caches and is responsible for managing data in the memory.
+  This is a single process which handles all access requests from all the processor caches.
+  It keeps track of all data entries and their states corresponding to memory.
+  Reference : 
+  Sorin, Daniel J., Mark D. Hill, and David A. Wood. "A primer on memory consistency and 
+  cache coherence." Synthesis Lectures on Computer Architecture 6.3 (2011): 1-212.
+  Karthik Reddy : https://github.com/karthikbox/cache_coherence/blob/mesi_protocol/submit_files/mesi_protocol_main.txt
+  """
   def setup(cache_protocol_objs,monitor_obj):
     self.pending_actions=[]
     self.memory = dict()
@@ -684,7 +722,7 @@ class MI_PROTO_CTRL(process):
 
   def perform_putS(addr,to_process):
     # remove req from sharers, send Put-Ack to req, if no sharer after removing this, 
-    # go to INVALID state, therwise S->S.
+    # go to INVALID state, otherwise S->S.
     assert to_process in memory[addr][2],'to_process not in sharers list'
     memory[addr][2].remove(to_process)
     if(len(memory[addr][2])==0):
@@ -735,27 +773,32 @@ class MI_PROTO_CTRL(process):
     assert addr in memory, "address %r not in memory" % addr
     if memory[addr][0]=='INVALID':
       time.sleep(0.1)
-      # send exclusive data to req, set owner to req, set state to exclusive
+      # send exclusive data to req, 
+      # set owner to req, 
+      # set state to exclusive
       send(('exclusive_data_from_dir',addr,memory[addr][3]),to=to_process)
       memory[addr][1]=to_process
       memory[addr][0]="EXCLUSIVE"
     elif memory[addr][0]=='SHARED':
-      # send data to req with ack=0, add req to sharers list, no change to state
+      # send data to req with ack=0, 
+      # add req to sharers list, 
+      # no change to state
       memory[addr][2].append(to_process)
       send(('data_from_dir',0,addr,memory[addr][3]),to=to_process)
     elif memory[addr][0]=='EXCLUSIVE':
-      # forward GetS to owner, add req to sharers
+      # forward GetS to owner, 
+      # add req to sharers
       # make state as OWNER
       send(('Fwd_GetS',addr,to_process),to=memory[addr][1])
       memory[addr][2].append(to_process)
       memory[addr][2].append(memory[addr][1])
       memory[addr][0]='SHARED'
       memory[addr][1]=[]
-      # await for data from the exclusive owner ???
       #await(memory[addr][0]=='SHARED')
     elif memory[addr][0]=='MODIFIED':
       # forward getS to owner, 
-      # add req to sharers, make state as OWNER
+      # add req to sharers, 
+      # make state as OWNER
       send(('Fwd_GetS',addr,to_process),to=memory[addr][1])
       memory[addr][2].append(to_process)
       memory[addr][0]='OWNER'
@@ -774,7 +817,9 @@ class MI_PROTO_CTRL(process):
     assert addr in memory, "address %r not in memory, current memory state %r " % (addr,memory[addr][0]) 
     output("addr_rcvd=%r, state in memory=%r"%(addr,memory[addr][0]))
     if memory[addr][0]=='INVALID':
-      # send data_from_dir with ack=0 to req, set owner to req, set state MODIFIED
+      # send data_from_dir with ack=0 to req, 
+      # set owner to req, i
+      # set state MODIFIED
       time.sleep(0.1)
       send(('data_from_dir',0,addr,memory[addr][3]),to=to_process)
       send(('inc_msg_cnt', 1), to=monitor_obj)
@@ -796,14 +841,16 @@ class MI_PROTO_CTRL(process):
       memory[addr][1]=to_process
       memory[addr][0]='MODIFIED'
     elif memory[addr][0]=='EXCLUSIVE':
-      # forrward getM to owner, set owner to req
+      # forrward getM to owner, 
+      # set owner to req
       # change state to MODIFIED
       send(('Fwd_GetM',addr,to_process),to=memory[addr][1])
       send(('inc_msg_cnt', 1), to=monitor_obj)
       memory[addr][1]=to_process
       memory[addr][0]='MODIFIED'
     elif memory[addr][0]=='MODIFIED':
-      # forward getM to owner, set owner to req
+      # forward getM to owner, 
+      # set owner to req
       send(('Fwd_GetM',addr,to_process),to=memory[addr][1])
       send(('inc_msg_cnt', 1), to=monitor_obj)
       memory[addr][1]=to_process
@@ -812,8 +859,10 @@ class MI_PROTO_CTRL(process):
         # send ackcount to req, send inv to sharers,
         # clear sharers, set state to MODIFIED
       #else (in case owner is not the requester)
-        # fwd-getm to owner, send inv to sharers,
-        # set owner to req, clear sharers, send ackcount to req, set state to MODIFIED
+        # fwd-getm to owner, 
+        # send inv to sharers,
+        # set owner to req, clear sharers, 
+        # send ackcount to req, set state to MODIFIED
       if to_process!=memory[addr][1]:
         if to_process in memory[addr][2]:
           memory[addr][2].remove(to_process)
@@ -856,21 +905,6 @@ class MI_PROTO_CTRL(process):
     """ Put it in pending queue"""
     pending_actions.append(('PutO',addr,p,data))
 
-
-
-  # not required in MOESI protocol
-  def receive(msg= ('data',addr,data), from_= p):
-    """ Do not queue"""
-    # receiveing data, that means, addr should be in memory
-    assert addr in memory, "addr=%r not present in DC memory" % addr
-    #assert current_state=='SHARED_DATA','invalid data received'
-    # key -value : memory_addr, [state,owner,[sharers],value]
-    assert memory[addr][0]=='SHARED_DATA','invalid memory state, data received'
-    # update value, update state to 'SHARED'
-    memory[addr][3]=data
-    memory[addr][0]='SHARED'
-
-
   def receive(msg= ('done',)):
     print("CTRL Exiting\n")
     exit()
@@ -878,13 +912,11 @@ class MI_PROTO_CTRL(process):
 class Processor(process):
     def setup(trace, protocol,monitor_obj):
       self.keep_waiting = False
-      ## self.cache = Cache(protocol, CACHE_SIZE)
     
     def execute(inst):
       if inst[0] == "r":
         send(('load',inst[1] , self.id), to=protocol)
-        send(('inc_msg_cnt', 1), to=monitor_obj)
-
+        send(('inc_msg_cnt', 1), to=monitor_obj) 
       elif inst[0] == "w":
         send(('store', inst[1], self.id, inst[2]), to=protocol)
         send(('inc_msg_cnt', 1), to=monitor_obj) 
@@ -896,7 +928,6 @@ class Processor(process):
         keep_waiting = False
         execute(inst)
         await(keep_waiting)
-
       print("Processor Exits")
 
     def receive(msg= ('completed')):
@@ -915,6 +946,20 @@ def get_traces(trace_dir, nprocs):
   return trace  
 
 class Monitor(process):
+  """
+    Monitor Class:
+    Used for correctness checking and performance analysis measurement.
+    Correntness checking : Instructions list will queue the result of all access requests to all caches.
+                           It will give us picture of how values are getting accessed/modified. 
+                           We are able to verify sequential consistency using this.
+    Performance analysis : (i)  Total # of messages used for communication
+                           (ii) Elapsed time taken by the protocol
+                           (iii)CPU time taken by the protocol
+
+    This part is common to all the 
+    Generic to all protocol implementations. Copied it from following :-
+    Reference: Paul Mathew. https://github.com/karthikbox/cache_coherence/blob/mi_protocol/mi_protocol.da
+  """
   def setup():
     self.instructions = []
     self.total_msgs = 0
@@ -935,20 +980,33 @@ class Monitor(process):
     await(False)
     
   def receive(msg= ('done',)):
-    print("===Load/Store global order===")
+    print(colored(("===Load/Store global order==="),'blue'))
     for ins in instructions:
-      print(ins[3], " : ", ins[0], ins[1], ins[2])
+      if ins[0]=='load':
+        print(ins[3], " : ", ins[0],"", ins[1]," ", ins[2])
+      else:
+        print(ins[3], " : ", ins[0], ins[1]," ", ins[2])
     print()
-    print("===Benchmarks===")
-    print("Total msg count:", total_msgs)
-    print("Elapsed time:", elapsed_time)
-    print("CPU time:", cpu_time)
+    print(colored(("===Benchmarks==="),'blue'))
+    print(colored(("Total Message Count:", total_msgs),'red'))
+    print(colored(("Elapsed time:", elapsed_time),'green'))
+    print(colored(("CPU time:", cpu_time),'cyan'))
     exit()
 
 def main():
+    """
+  Main driver function to simulate the running behaviour of cache coherence protocol with 
+  given number of processors, protocol name and trace file path.
+  Command should be passed in the following way :
+  dar main.da 'n' "Protocol" "Path",
+  where n - # of processors ( local-caches)
+        Protocol - Protocol Name (MI/MSI/MESI/MOSI/MOESI)
+        Path - Path of the trace file to run with
+  Since this is a part of common platform on which the team will do the evaluations, copied it from following :-
+  Reference: Parag Gupta. https://github.com/karthikbox/cache_coherence/tree/p_template/main.da
+    """
     nprocessors = int(sys.argv[1]) if len(sys.argv) > 1 else 2
-    proto_name = sys.argv[2] if len(sys.argv) > 2 else 'MI'
-    #trace_file = sys.argv[3] if len(sys.argv) > 3 else exit(-1)
+    proto_name = sys.argv[2] if len(sys.argv) > 2 else 'MOESI'
     trace_dir = sys.argv[3] if len(sys.argv) > 3 else './traces'
 
     config(channel= 'fifo', clock= 'Lamport')
