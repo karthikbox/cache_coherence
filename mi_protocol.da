@@ -266,11 +266,11 @@ class MI_PROTO_CTRL(process):
     Retrieve the requested address from memory and send it back to the cache
     """
     """ Add time delay here to mimic cache-to-memory latency """
-    #time.sleep(3)
     if addr in self.memory_ref and self.memory_ref[addr] > 0:
       send(('get_from_cache', addr), to=p)
       send(('inc_msg_cnt', 1), to=monitor_obj)
     else:
+      time.sleep(0.1)
       self.memory_ref[addr] = 1
       if addr not in self.memory_value:
         self.memory_value[addr] = 0
@@ -281,6 +281,7 @@ class MI_PROTO_CTRL(process):
     """
     Write back to memory
     """
+    time.sleep(0.1)
     self.memory_ref[addr] = 0
 
   def receive(msg= ('done',)):

@@ -273,6 +273,7 @@ class MI_PROTO_CTRL(da.DistProcess):
             self._send(('get_from_cache', addr), p)
             self._send(('inc_msg_cnt', 1), self.monitor_obj)
         else:
+            time.sleep(0.1)
             self.memory_ref[addr] = 1
             if (not (addr in self.memory_value)):
                 self.memory_value[addr] = 0
@@ -283,6 +284,7 @@ class MI_PROTO_CTRL(da.DistProcess):
 
     def _MI_PROTO_CTRL_handler_11(self, addr, value):
         '\n    Write back to memory\n    '
+        time.sleep(0.1)
         self.memory_ref[addr] = 0
     _MI_PROTO_CTRL_handler_11._labels = None
     _MI_PROTO_CTRL_handler_11._notlabels = None
@@ -308,18 +310,18 @@ class Processor(da.DistProcess):
         for inst in self.trace:
             self.keep_waiting = False
             self.execute(inst)
-            _st_label_196 = 0
-            while (_st_label_196 == 0):
-                _st_label_196 += 1
+            _st_label_198 = 0
+            while (_st_label_198 == 0):
+                _st_label_198 += 1
                 if self.keep_waiting:
-                    _st_label_196 += 1
+                    _st_label_198 += 1
                 else:
-                    super()._label('_st_label_196', block=True)
-                    _st_label_196 -= 1
+                    super()._label('_st_label_198', block=True)
+                    _st_label_198 -= 1
             else:
-                if (_st_label_196 != 2):
+                if (_st_label_198 != 2):
                     continue
-            if (_st_label_196 != 2):
+            if (_st_label_198 != 2):
                 break
 
     def execute(self, inst):
@@ -360,14 +362,14 @@ class Monitor(da.DistProcess):
         self.elapsed_time = 0
 
     def _da_run_internal(self):
-        _st_label_221 = 0
-        while (_st_label_221 == 0):
-            _st_label_221 += 1
+        _st_label_223 = 0
+        while (_st_label_223 == 0):
+            _st_label_223 += 1
             if False:
-                _st_label_221 += 1
+                _st_label_223 += 1
             else:
-                super()._label('_st_label_221', block=True)
-                _st_label_221 -= 1
+                super()._label('_st_label_223', block=True)
+                _st_label_223 -= 1
 
     def _Monitor_handler_15(self, type, addr, value, cache_id):
         '\n    Collects all load/store instructions executed by the cache controller\n    '
