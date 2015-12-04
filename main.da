@@ -1,5 +1,6 @@
 import sys
 import time
+import os
 
 ENOTSUPP = 2
 CACHE_SIZE = 512
@@ -24,12 +25,11 @@ class MOSI_PROTO_CTRL(process):
   def processRequest():
     # dequeue request
     action = pending_actions.pop(0)
-    instruction = action[0] if len(action) > 0 else ''
-    block_addr = action[1]  if len(action) > 1 else ''
-    cache_id = action[2] if len(action) > 2 else ''
-    data = action[3] if len(action) > 3 else ''
+    instruction = action[0]
+    block_addr = action[1]
+    cache = action[2]
 
-    # pending_actions tuple format : (instruction, cache_id, block_addr, data)
+    # pending_actions tuple format : (instruction, block_addr, cache, data)
     # check if block address is in the memory
     # if not put the address in the memory with INVALID state
     # and add the processor cache_id 
@@ -38,12 +38,16 @@ class MOSI_PROTO_CTRL(process):
 
     if(instruction == 'GetS'):
       # get the block address for read operation
-      getS(cache_id, block_addr)
-
+      getS(cache, block_addr)
     elif(instruction == 'GetM'):
       # get the block address for write operation
-      getM(cache_id, block_addr)
-
+      getM(cache, block_addr)
+    elif(instruction=='PutS'):
+      putS(block_addr, cache)
+    elif(instruction=='PutM'):
+      putM(block_addr, cache, action[3])
+    elif(instruction=='PutE'):
+      putO(block_addr, cache)
     else: 
       print('Invalid request')
 
@@ -59,16 +63,20 @@ class MOSI_PROTO_CTRL(process):
     #check the state and correspond to other caches accordingly
     if(state == "INVALID"):
       state = "SHARED"
+      directory_ctrlr[block_addr][2].append(cache)
       send(("data_from_DC", 0, block_addr, tuple[3]), to=cache)
     elif(state == "SHARED"):
       directory_ctrlr[block_addr][2].append(cache)
       send(("data_from_DC", 0, block_addr, tuple[3]), to=cache)
-    elif(state == "MODIFIED" or state == "OWNED"):
+    elif(state == "MODIFIED"):
       state = "OWNED"
       directory_ctrlr[block_addr][2].append(cache)
-      send(("Fwd_getS", block_addr, tuple[3]), to=directory_ctrlr[block_addr][1])
+      send(("Fwd_GetS", cache, block_addr), to=directory_ctrlr[block_addr][1])
+    elif(state == "OWNED"):
+      directory_ctrlr[block_addr][2].append(cache)
+      send(("Fwd_GetS", cache, block_addr), to=directory_ctrlr[block_addr][1])
     else:
-      print('State not supported!')
+      print('DC: State not supported!')
 
     directory_ctrlr[block_addr][0] = state; 
 
@@ -93,29 +101,54 @@ class MOSI_PROTO_CTRL(process):
 
       ack_count = len(directory_ctrlr[block_addr][2])
       send(('data_from_DC', ack_count, block_addr, data), to=cache)
-      send(('Invalidate', block_addr, cache),to={x for x in directory_ctrlr[block_addr][2]})
+      send(('Invalidate', cache, block_addr),to={x for x in directory_ctrlr[block_addr][2]})
       directory_ctrlr[block_addr][1] = cache
       directory_ctrlr[block_addr][2] = []
  
     elif(state == "MODIFIED"):
-      send(('Fwd_getM', block_addr, data), to= directory_ctrlr[block_addr][1]);
       directory_ctrlr[block_addr][1] = cache
+      send(('Fwd_GetM', cache, block_addr), to= directory_ctrlr[block_addr][1]);
 
     elif (state == "OWNED"):
       ack_count = len(directory_ctrlr[block_addr][2])
       if ( cache == directory_ctrlr[block_addr][1]):
-        send(('AckCount', ack_count, block_addr), to=cache)
-        send(('Invalidate', block_addr, cache),to={x for x in directory_ctrlr[block_addr][2]})
+        send(('Ack_cnt', ack_count, block_addr), to=cache)
+        send(('Invalidate', cache, block_addr),to={x for x in directory_ctrlr[block_addr][2]})
       else:
-        send(('Fwd_getM', block_addr, data), to= directory_ctrlr[block_addr][1]);
-        send(('Invalidate', block_addr, cache),to={x for x in directory_ctrlr[block_addr][2]})
+        if cache in directory_ctrlr[block_addr][2]:
+          directory_ctrlr[block_addr][2].remove(cache)
+        send(('Fwd_getM', cache, block_addr), to= directory_ctrlr[block_addr][1]);
+        send(('Invalidate', cache, block_addr),to={x for x in directory_ctrlr[block_addr][2]})
         directory_ctrlr[block_addr][1] = cache 
-        send(('AckCount', ack_count, block_addr), to=cache)
+        send(('Ack_cnt', ack_count, block_addr), to=cache)
       directory_ctrlr[block_addr][2] = []
     else:
-      print("State not supported!")
+      print("DC_getM: State not supported!")
 
     directory_ctrlr[block_addr][0] = "MODIFIED"
+
+
+  def putS(addr, proc):
+    directory_ctrlr[addr][2].remove(proc)
+    if(len(directory_ctrlr[addr][2])==0):
+      directory_ctrlr[addr][0]='INVALID'
+    send(('Put_Ack',addr,self.id),to=proc)
+
+  def putM(addr,proc,data):
+    directory_ctrlr[addr][3]=data
+    directory_ctrlr[addr][1]=None
+    directory_ctrlr[addr][0]='INVALID'
+    send(('Put_Ack',addr,self.id),to=proc)
+
+  def putO(addr,proc,data):
+    directory_ctrlr[addr][3]=data
+    directory_ctrlr[addr][1]=None
+    if len(directory_ctrlr[addr][2])>0:
+      directory_ctrlr[addr][0]='SHARED'
+    else:
+      directory_ctrlr[addr][0]='INVALID'
+    send(('Put_Ack',addr,self.id),to=proc)
+
 
   def receive(msg=('GetS',addr), from_=p):
     """ Put it in pending queue"""
@@ -133,9 +166,9 @@ class MOSI_PROTO_CTRL(process):
     """ Put it in pending queue"""
     pending_actions.append(('PutM',addr,p,data))
 
-  def receive(msg= ('PutE',addr), from_= p):
+  def receive(msg= ('PutO',addr), from_= p):
     """ Put it in pending queue"""
-    pending_actions.append(('PutE',addr,p))
+    pending_actions.append(('PutO',addr,p))
 
   def receive(msg= ('data',addr,data), from_= p):
     directory_ctrlr[addr][3]=data
@@ -165,7 +198,7 @@ class MOSI_PROTO_CACHE(process):
 
   def run():
     while(1):
-      await(len(self.pending_actions)>0 and current_state=="READY")
+      await(len(self.pending_actions)>0 and current_state == 'READY')
       # queue has some pending request and  state is READY
       # process request
       processRequest()
@@ -179,10 +212,6 @@ class MOSI_PROTO_CACHE(process):
     p = action[2] if len(action) > 2 else ''
     data = action[3] if len(action) > 3 else ''
 
-    #instruction = action[0] 
-    #block_addr = action[1]
-    #p = action[2]
-    #data = action[3]; 
 
     # Instruction: LOAD, STORE or INVALIDATE
     # Might need to forward the request to the other caches
@@ -197,10 +226,12 @@ class MOSI_PROTO_CACHE(process):
       forward_getS_request(block_addr, p)
     elif instruction == 'Fwd_GetM':
       forward_getM_request(block_addr, p)
+    elif instruction == 'REPLACEMENT':
+      replace_block_copy(block_addr)
 
 
   def invalidate_cache_copy(addr, p):
-    result = None 
+    result = [] 
     for x in local_cache:
       if x[0]==addr:
         result=x
@@ -208,37 +239,37 @@ class MOSI_PROTO_CACHE(process):
 
     send(('Inv_ack', addr, p),to=p)
 
-    index = local_cache.index(result[0])
+    index = local_cache.index(result)
     tuple = local_cache.pop(index)
 
     if tuple[1] == 'SHARED':
-       local_cache.insert(index,(tuple[0],'INVALID',tuple[2])) 
+       local_cache.insert(index,(tuple[0],'INVALID',tuple[2]))
+       current_state='INVALID' 
     elif tuple[1] == 'SMAD':
        local_cache.insert(index,(tuple[0],'IMAD',tuple[2]))
        current_state='IMAD'
-    
+    elif tuple[1] == 'SIA':
+       local_cache.insert(index,(tuple[0],'IIA',tuple[2]))
+       current_state='IIA'
 
   def load_block_copy(addr, p):
-    result = None 
+    result = [] 
     for x in local_cache:
       if x[0]==addr:
         result=x
         break
  
-    if result != None: 
-      state = result[0][1]
-
+    if len(result):
+      state = result[1]
       if state == "INVALID":
-        update_cache(result[0])
-        current_state = "INVALID"
+        update_cache(result)
         transition_I_toS(addr)
-      elif state in ['SHARED','MODIFIED','OWNED']:
-        update_cache(result[0])
+      elif state in ['SHARED','MODIFIED','OWNED', 'SMAD', 'SMA', 'OMAC', 'OMA']:
+        update_cache(result)
       else:
-        print('State not supported!')
+        print('LOAD: State not supported!')
     else:
        add_to_cache((addr, 'INVALID', 0))
-       current_state = "INVALID"
        transition_I_toS(addr)
 
     current_state="READY"
@@ -246,137 +277,217 @@ class MOSI_PROTO_CACHE(process):
 
 
   def store_block_copy(addr, p, data):
-    result = None 
+    result = [] 
     for x in local_cache:
       if x[0]==addr:
         result=x
         break
  
-    if result != None: 
-      state = result[0][1]
-
+    if len(result): 
+      state = result[1]
       if state == "INVALID":
-        update_cache(result[0])
-        current_state = "INVALID"
-        transition_I_toM(addr)
+        update_cache(result)
+        current_state = "IMAD"
+        transition_I_toM(addr, data)
       elif state == 'SHARED':
-        update_cache(result[0])
-        current_state = "SHARED"
+        update_cache(result)
+        current_state = "SMAD"
         transition_S_toM(addr, data)
       elif state == "MODIFIED":
-        update_cache(result[0])
+        update_cache(result)
       elif state == "OWNED":
-        update_cache(result[0])
-        current_state = "MODIFIED"
+        update_cache(result)
+        current_state = "OMAC"
         transition_O_toM(addr, data)
       else:
-        print('State not supported!')
+        print('STORE: State not supported!')
     else:
-       add_to_cache((addr, 'INVALID', 0))
        current_state = "INVALID"
-       transition_I_toM(addr)
+       add_to_cache((addr, 'INVALID', 0))
+       transition_I_toM(addr, data)
 
     current_state="READY"
     send('completed', to=p)
  
+  def replace_block_copy(tuple):
+    if tuple[1]=='SHARED':
+      send(('PutS',tuple[0]), to=DC)
+      current_state='SIA'
+      await(current_state=='INVALID')
+    elif tuple[1] in ['MODIFIED', 'OWNED']:
+      if tuple[1]=='MODIFIED':
+        send(('PutM',tuple[0],tuple[2]), to=DC)
+        current_state='MIA'
+      elif tuple[1]=='OWNED':
+        send(('PutE',tuple[0]), to=DC)
+        current_state='OIA'
+      await(current_state=='INVALID')
+
+      local_cache.remove(tuple)
+
   def forward_getS_request(addr, p):
-    result = None 
+    result = [] 
     for x in local_cache:
       if x[0]==addr:
         result=x
         break
 
-    send(('data_from_Owner',result[0][0],result[0][2]),to=p)
-    send(('data',result[0][0],result[0][2]),to=DC)
-
-    index = local_cache.index(result[0])
+    index = local_cache.index(result)
     tuple = local_cache.pop(index)
-    local_cache.insert(index,(tuple[0],'SHARED',tuple[2])) 
 
+    orig_state = tuple[1]
+    state = '' 
+
+    if orig_state in ['MODIFIED']:
+      state = 'OWNED'
+    elif orig_state in ['MIA']:
+      state = 'OIA'
+      current_state = state
+
+    if state != '': 
+      local_cache.insert(index,(tuple[0], state,tuple[2]))
+    else:
+      local_cache.insert(index,tuple); 
+
+    send(('data_from_Owner',result[0],result[2]), to=p)
 
   def forward_getM_request(addr, p):
-    result = None 
+    result = [] 
     for x in local_cache:
       if x[0]==addr:
         result=x
         break
 
-    send(('data_from_Owner',result[0][0],result[0][2]),to=p)
 
-    index = local_cache.index(result[0])
+    state = ''
+    index = local_cache.index(result)
     tuple = local_cache.pop(index)
-    local_cache.insert(index,(tuple[0],'SHARED',tuple[2]))
+    orig_state = tuple[1]
 
+    if orig_state in ['MODIFIED', 'OWNED']:
+      state = 'INVALID'
+    elif orig_state in ['MIA', 'OIA']:
+      state = 'IIA'
+      current_state='IIA'
+    elif orig_state in ['OMAC']:
+      state = 'IMAD'
+      current_state='IMAD'
+
+    if state != '': 
+      local_cache.insert(index,(tuple[0], state,tuple[2]))
+
+    send(('data_from_Owner',result[0],result[2]),to=p)
 
   def transition_I_toS(addr):
     current_state='ISD'
     tuple = local_cache.pop(0)
-    local_cache.insert(0,(tuple[0],current_state,tuple[2])) 
+    local_cache.insert(0,(tuple[0],current_state,tuple[2]))
+    print('send getS to DC') 
     send(('GetS',addr),to=DC)
 
     await(current_state=='SHARED') 
     
- 
-  def transition_I_toM(addr):
+  def transition_I_toM(addr, data):
     current_state='IMAD'
     tuple = local_cache.pop(0)
     local_cache.insert(0,(tuple[0],current_state,tuple[2])) 
     send(('GetM',addr),to=DC)
-    await(current_state=='MODIFIED')
 
-  def transition_S_toM(addr):
+    transition_IMAD_toM(addr, data)
+    t=local_cache.pop(0)
+    local_cache.insert(0,(tuple[0],current_state,data))
+    
+
+  def transition_IMAD_toM(addr, data):
+    await(current_state=='IMA' or current_state=='MODIFIED')
+    if current_state=='MODIFIED':
+      pass
+    else:
+      await(current_state == 'MODIFIED')
+
+  def transition_S_toM(addr, data):
     current_state='SMAD'
     tuple = local_cache.pop(0)
     local_cache.insert(0,(tuple[0],current_state,tuple[2])) 
     send(('GetM',addr),to=DC)
-    await(current_state=='MODIFIED') 
 
-  def transition_O_toM(addr):
+    await(current_state=='SMA' or current_state=='MODIFIED' or current_state=='IMAD')
+    if current_state == 'MODIFIED':
+      pass
+    elif current_state=='SMA':
+      await(current_state=='MODIFIED')
+    elif current_state=='IMAD':
+      transition_IMAD_toM(addr, data)
+    else:
+      print('IMAD_to_M: Invalid State!')
+
+    tuple=local_cache.pop(0)
+    local_cache.insert(0,(tuple[0],current_state,data))
+
+  def transition_O_toM(addr, data):
     current_state='OMAC'
     tuple = local_cache.pop(0)
     local_cache.insert(0,(tuple[0],current_state,tuple[2])) 
     send(('GetM',addr),to=DC)
-    await(current_state=='MODIFIED')
 
+    #await(current_state=='OMA' or current_state=='MODIFIED')
+    if current_state == 'MODIFIED':
+      pass
+    elif current_state == 'OMA':
+      await(current_state == 'MODIFIED')
+    elif current_state == 'OMA':
+      transition_IMAD_toM(addr, data)
+    else:
+      print('O_to_M: Invalid State!')
+
+    tuple=local_cache.pop(0)
+    local_cache.insert(0,(tuple[0],current_state,data))
+    current_state = 'READY' 
  
   def transition_M_toO():
     pass
 
   def receive(msg=('data_from_DC', ack_cnt, addr, data), from_=s):
     if current_state=='ISD' and addr==local_cache[0][0] and ack_cnt==0:
+      print('data from DC')
       current_state = "SHARED"
       tuple = local_cache.pop(0)
       local_cache.insert(0, (tuple[0], current_state, data))
     elif ((current_state=='IMAD' or current_state=='SMAD') and addr==local_cache[0][0] and ack_cnt==0):
+      print('IMAD 0')
       current_state = "MODIFIED"
       tuple = local_cache.pop(0)
       local_cache.insert(0, (tuple[0], current_state, data))
     elif current_state=='IMAD' and addr==local_cache[0][0] and ack_cnt>0:
+      print('IMAD')
       current_state = "IMA"
       tuple = local_cache.pop(0)
       local_cache.insert(0, (tuple[0], current_state, data, ack_cnt))
     elif current_state=='SMAD' and addr==local_cache[0][0] and ack_cnt>0:
+      print('SMAD')
       current_state = "SMA"
       tuple = local_cache.pop(0)
       local_cache.insert(0, (tuple[0], current_state, data, ack_cnt))
     else:
-      print('State not Supported!')
+      print(current_state)
+      print('Data from DC: State not Supported!')
 
   def receive(msg=('data_from_Owner', addr, data), from_=s):
     if current_state=='ISD' and addr==local_cache[0][0]:
       current_state = "SHARED"
       tuple = local_cache.pop(0)
       local_cache.insert(0, (tuple[0], current_state, data))
-    elif ((current_state=='IMAD' or current_state=='SMAD' or current_state=='OMAC') and addr==local_cache[0][0]):
+    elif ((current_state=='IMAD' or current_state=='SMAD') and addr==local_cache[0][0]):
       current_state = "MODIFIED"
       tuple = local_cache.pop(0)
       local_cache.insert(0, (tuple[0], current_state, data))
     else:
-      print('State not Supported!')
+      print(current_state)
+      print('Data from Owner: State not Supported!')
 
 
   def receive(msg=('Inv_Ack',addr,p), from_=s):
-    states = ['IMA', 'IMAD', 'SMAD', 'SMA', 'OMAC', 'OMA']
+    states = ['IMA', 'IMAD', 'SMA', 'OMA']
     if (current_state in states) and addr==local_cache[0][0]:
       tuple = local_cache.pop(0)
       ack_cnt = tuple[3]
@@ -390,22 +501,22 @@ class MOSI_PROTO_CACHE(process):
   
 
   def receive(msg=('Invalidate', p, addr), from_=s):
-    result="" 
+    result=[] 
     for x in local_cache:
       if x[0] == addr:
-        result = x[0][1]
+        result = x[1]
         break 
 	 
     if (result == "SHARED" or result == "SMAD" or result == "SIA"):
       invalidate_cache_copy(addr, p)
     else:
-      pending_actions.append('Invalidate', p, addr) 
-
+      pending_actions.append(('Invalidate', addr, p))
+ 
   def add_to_cache(tuple):
     if len(local_cache) >= CACHE_SIZE:
-      value=local_cache.pop(0)
+      value=local_cache[len(local_cache)-1]
       if value[1] in ['SHARED', 'MODIFIED', 'OWNED']:
-        pending_actions.insert(0,('REPLACEMENT',value[0],None))
+        pending_actions.insert(0,('REPLACEMENT',value,None))
        
     local_cache.insert(0, tuple)
   
@@ -414,16 +525,46 @@ class MOSI_PROTO_CACHE(process):
     local_cache.insert(0, tuple)
       
   def receive(msg=('Fwd_GetS', p, addr), from_=s):
-    pending_actions.append('Fwd_GetS', p, addr)
+    res=[x for x in local_cache if x[0]==addr]
+    if res[0][1] in ['MODIFIED', 'OWNED', 'MIA', 'OMA', 'OMAC', 'OIA']:
+      forward_getS_request(addr,p)
+    else:
+      pending_actions.append(('Fwd_GetS', addr, p))
 
   def receive(msg=('Fwd_GetM', p, addr), from_=s):
-    pending_actions.append('Fwd_GetM', p, addr)
+    res=[x for x in local_cache if x[0]==addr]
+    if res[0][1] in ['MODIFIED', 'OWNED', 'MIA', 'OMAC', 'OIA']:
+      forward_getM_request(addr,p)
+    else:
+      pending_actions.append(('Fwd_GetM', addr, p))
 
   def receive(msg=('load',addr, p), from_=s):
     self.pending_actions.append(('load',addr, s))
+    print('received Load request for block : ', addr, " ", s)
 
   def receive(msg=('store',addr, p, data), from_=s):
     self.pending_actions.append(('store',addr, s))
+    print('received Store request for block : ', addr, " ", s)
+
+  def receive(msg=('Put_Ack',addr,p), from_=s):
+    res = [ x for x in local_cache if x==addr]
+    if current_state in ['SIA','IIA','MIA','OIA']:
+      index=local_cache.index(res[0])
+      t=local_cache.pop(index)
+      local_cache.insert(index,(t[0],'INVALID',t[2]))
+      current_state='INVALID'
+    else:
+      print('Invalid state!')
+
+  def receive(msg=('Ack_cnt',ack,addr), from_=s):
+    res = [ x for x in local_cache if x==addr]
+    if current_state == 'OMAC':
+      current_state='OMA'
+      t=local_cache.pop(0)
+      local_cache.insert(0,(t[0],current_state,t[2]))
+    else:
+      print('ACK_cnt: Invalid state!') 
+
 
   def receive(msg= ('done',)):
     print("Cache Exiting\n")
@@ -452,33 +593,32 @@ class Processor(process):
         execute(inst)
         await(keep_waiting)
 
-      print("Processor Exits")
+      print("Processor Exits", self.id)
 
     def receive(msg= ('completed')):
       print("ACKed\n")
       keep_waiting = True
 
-def get_traces(trace_file):
-  return [
-          [
-           ('r', '0x11111111'),
-           ('w', '0x11111111',20),
-           ('r', '0x11111111')
-          ],
+def get_traces(trace_dir,nprocs):
+  trace=[]
+  for i in range(nprocs):
+    trace_filename='p'+str(i)+'.trace'
+    f=open(os.path.join(trace_dir,trace_filename))
+    insts=[]
+    for line in f:      
+      insts.append(line.split())
+    trace.append(insts)
+  return trace
 
-          [
-           ('r', '0x11111111'),
-           ('w', '0x11111111',25)
-          ],
-
-         ]
 
 def main():
     nprocessors = int(sys.argv[1]) if len(sys.argv) > 1 else 2
     proto_name = sys.argv[2] if len(sys.argv) > 2 else 'MOSI'
-    trace_file = sys.argv[3] if len(sys.argv) > 3 else 'none'
+    trace_dir = sys.argv[3] if len(sys.argv) > 3 else './traces'
 
-    trace = get_traces(trace_file)
+#    config(channel= 'fifo', clock= 'Lamport')
+
+    trace = get_traces(trace_dir,nprocessors)
     Proto_cache, Proto_ctrl = get_proto_class(proto_name)
 
     ## Initialize protocol objs for caches and controller
