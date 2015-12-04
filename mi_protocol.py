@@ -26,15 +26,16 @@ PatternExpr_22 = da.pat.TuplePattern([da.pat.ConstantPattern('time_taken'), da.p
 PatternExpr_23 = da.pat.TuplePattern([da.pat.ConstantPattern('done')])
 import sys
 import time
+import os
 ENOTSUPP = 2
 CACHE_SIZE = 512
 
 def get_proto_class(name):
+    '\n        return the corresponding protocol class name and controller name\n        generic to all protocol implementations\n        Reference : Parag Gupta (https://github.com/karthikbox/cache_coherence/tree/p_template/main.da)\n  '
     if (name == 'MI'):
         return (eval('MI_PROTO_CACHE'), eval('MI_PROTO_CTRL'))
     else:
         self.exit((- ENOTSUPP))
-'\n  MI Protocol class:\n'
 
 class MI_PROTO_CACHE(da.DistProcess):
 
@@ -56,16 +57,17 @@ class MI_PROTO_CACHE(da.DistProcess):
         self.pending_actions = []
 
     def _da_run_internal(self):
-        _st_label_21 = 0
-        while (_st_label_21 == 0):
-            _st_label_21 += 1
+        _st_label_23 = 0
+        while (_st_label_23 == 0):
+            _st_label_23 += 1
             if False:
-                _st_label_21 += 1
+                _st_label_23 += 1
             else:
-                super()._label('_st_label_21', block=True)
-                _st_label_21 -= 1
+                super()._label('_st_label_23', block=True)
+                _st_label_23 -= 1
 
     def reorder(self, addr, value):
+        '\n    LRU Caching logic\n    '
         ' Check if the addr is present in the list '
         found = False
         for (state, address, val) in self.memory:
@@ -87,29 +89,30 @@ class MI_PROTO_CACHE(da.DistProcess):
         return value
 
     def get_addr(self, addr):
+        '\n    The load/store address is not in the cache, try\n       (1) snoop other caches \n       (2) if (1) fails then get from memory\n    '
         self.wait_for_caches = False
         self._send(('get', addr), self.other_protocol_obj)
         self._send(('inc_msg_cnt', len(self.other_protocol_obj)), self.monitor_obj)
-        _st_label_47 = 0
-        while (_st_label_47 == 0):
-            _st_label_47 += 1
+        _st_label_50 = 0
+        while (_st_label_50 == 0):
+            _st_label_50 += 1
             if self.wait_for_caches:
-                _st_label_47 += 1
+                _st_label_50 += 1
             else:
-                super()._label('_st_label_47', block=True)
-                _st_label_47 -= 1
+                super()._label('_st_label_50', block=True)
+                _st_label_50 -= 1
         if (not self.get_from_caches):
             self.wait_for_memory = False
             self._send(('get', addr), self.mem_ctrl_protocol_obj)
             self._send(('inc_msg_cnt', 1), self.monitor_obj)
-            _st_label_52 = 0
-            while (_st_label_52 == 0):
-                _st_label_52 += 1
+            _st_label_55 = 0
+            while (_st_label_55 == 0):
+                _st_label_55 += 1
                 if self.wait_for_memory:
-                    _st_label_52 += 1
+                    _st_label_55 += 1
                 else:
-                    super()._label('_st_label_52', block=True)
-                    _st_label_52 -= 1
+                    super()._label('_st_label_55', block=True)
+                    _st_label_55 -= 1
             if self.get_from_memory:
                 self._send(('invalidate', addr), self.other_protocol_obj)
                 self._send(('inc_msg_cnt', len(self.other_protocol_obj)), self.monitor_obj)
@@ -119,6 +122,7 @@ class MI_PROTO_CACHE(da.DistProcess):
         self.get_from_caches = False
 
     def _MI_PROTO_CACHE_handler_0(self, addr, p):
+        '\n    Received request for address from another cache, check local\n    cache and if addr is present, invalidate it and send back the value\n    '
         ' Add time delay here to mimic cache-to-cache latency '
         found = False
         value = ''
@@ -138,6 +142,7 @@ class MI_PROTO_CACHE(da.DistProcess):
     _MI_PROTO_CACHE_handler_0._notlabels = None
 
     def _MI_PROTO_CACHE_handler_1(self, addr, p):
+        '\n    Invalidate the cache block containing the requested address if present in our cache\n    '
         ' invalidate cache block '
         for i in range(len(self.memory)):
             ' invalidate cache block '
@@ -148,6 +153,7 @@ class MI_PROTO_CACHE(da.DistProcess):
     _MI_PROTO_CACHE_handler_1._notlabels = None
 
     def _MI_PROTO_CACHE_handler_2(self, addr, value):
+        '\n    Received "found in cache" acknowledgement which basically denotes we have found the requested addr in another cache and received the value from that cache.\n    '
         ' Check if the cache is full '
         if (len(self.memory) == self.size):
             print('Cache is full')
@@ -162,12 +168,14 @@ class MI_PROTO_CACHE(da.DistProcess):
     _MI_PROTO_CACHE_handler_2._notlabels = None
 
     def _MI_PROTO_CACHE_handler_3(self, addr):
+        '\n    Data already loaded into a cache. Snoop again\n    '
         self.wait_for_memory = True
         self.get_addr(addr)
     _MI_PROTO_CACHE_handler_3._labels = None
     _MI_PROTO_CACHE_handler_3._notlabels = None
 
     def _MI_PROTO_CACHE_handler_4(self, addr):
+        '\n    Received "found in cache" acknowledgement which basically denotes we have found \n    the requested addr in another cache and received the value from that cache.\n    '
         self.not_found_q.append('recvd_not_found')
         if (len(self.not_found_q) == len(self.other_protocol_obj)):
             self.wait_for_caches = True
@@ -175,6 +183,7 @@ class MI_PROTO_CACHE(da.DistProcess):
     _MI_PROTO_CACHE_handler_4._notlabels = None
 
     def _MI_PROTO_CACHE_handler_5(self, addr, value):
+        '\n    We have received the requested address/data from the memory controller\n    '
         ' Check if the cache is full '
         if (len(self.memory) == self.size):
             print('Cache is full')
@@ -189,12 +198,14 @@ class MI_PROTO_CACHE(da.DistProcess):
     _MI_PROTO_CACHE_handler_5._notlabels = None
 
     def _MI_PROTO_CACHE_handler_6(self):
+        '\n    Address no found in memory\n    '
         print('Addr not found in memory')
         self.wait_for_memory = True
     _MI_PROTO_CACHE_handler_6._labels = None
     _MI_PROTO_CACHE_handler_6._notlabels = None
 
     def _MI_PROTO_CACHE_handler_7(self, addr, s):
+        '\n    Received load request from processor, load address into cache and send back acknowledgement\n    '
         found = False
         value = ''
         for val in self.memory:
@@ -212,6 +223,7 @@ class MI_PROTO_CACHE(da.DistProcess):
     _MI_PROTO_CACHE_handler_7._notlabels = None
 
     def _MI_PROTO_CACHE_handler_8(self, addr, value, s):
+        '\n    Received store request from processo, store value into cache and send back acknowledgement\n    '
         found = False
         for val in self.memory:
             if ((val[0] == 1) and (val[1] == addr)):
@@ -245,16 +257,17 @@ class MI_PROTO_CTRL(da.DistProcess):
         self.memory_value = dict()
 
     def _da_run_internal(self):
-        _st_label_147 = 0
-        while (_st_label_147 == 0):
-            _st_label_147 += 1
+        _st_label_160 = 0
+        while (_st_label_160 == 0):
+            _st_label_160 += 1
             if False:
-                _st_label_147 += 1
+                _st_label_160 += 1
             else:
-                super()._label('_st_label_147', block=True)
-                _st_label_147 -= 1
+                super()._label('_st_label_160', block=True)
+                _st_label_160 -= 1
 
     def _MI_PROTO_CTRL_handler_10(self, addr, p):
+        '\n    Retrieve the requested address from memory and send it back to the cache\n    '
         ' Add time delay here to mimic cache-to-memory latency '
         if ((addr in self.memory_ref) and (self.memory_ref[addr] > 0)):
             self._send(('get_from_cache', addr), p)
@@ -269,6 +282,7 @@ class MI_PROTO_CTRL(da.DistProcess):
     _MI_PROTO_CTRL_handler_10._notlabels = None
 
     def _MI_PROTO_CTRL_handler_11(self, addr, value):
+        '\n    Write back to memory\n    '
         self.memory_ref[addr] = 0
     _MI_PROTO_CTRL_handler_11._labels = None
     _MI_PROTO_CTRL_handler_11._notlabels = None
@@ -294,37 +308,41 @@ class Processor(da.DistProcess):
         for inst in self.trace:
             self.keep_waiting = False
             self.execute(inst)
-            _st_label_178 = 0
-            while (_st_label_178 == 0):
-                _st_label_178 += 1
+            _st_label_196 = 0
+            while (_st_label_196 == 0):
+                _st_label_196 += 1
                 if self.keep_waiting:
-                    _st_label_178 += 1
+                    _st_label_196 += 1
                 else:
-                    super()._label('_st_label_178', block=True)
-                    _st_label_178 -= 1
+                    super()._label('_st_label_196', block=True)
+                    _st_label_196 -= 1
             else:
-                if (_st_label_178 != 2):
+                if (_st_label_196 != 2):
                     continue
-            if (_st_label_178 != 2):
+            if (_st_label_196 != 2):
                 break
 
     def execute(self, inst):
-        (type, addr, value) = inst
-        if (type == 'r'):
+        '\n           Execute the instructions in the given execution trace \n           Reference : Parag Gupta (https://github.com/karthikbox/cache_coherence/tree/p_template/main.da)\n      '
+        if (inst[0] == 'r'):
+            (type, addr) = inst
             self._send(('load', addr), self.protocol)
             self._send(('inc_msg_cnt', 1), self.monitor_obj)
-        elif (type == 'w'):
+        elif (inst[0] == 'w'):
+            (type, addr, value) = inst
             self._send(('store', addr, value), self.protocol)
             self._send(('inc_msg_cnt', 1), self.monitor_obj)
         else:
             print('Unexpected instruction:', inst)
 
     def _Processor_handler_13(self, value):
+        '\n      Receive acknowledgement from the cache controller process.\n      This indicates that the instruction has been executed\n      Reference : Parag Gupta (https://github.com/karthikbox/cache_coherence/tree/p_template/main.da)\n      '
         self.keep_waiting = True
     _Processor_handler_13._labels = None
     _Processor_handler_13._notlabels = None
 
     def _Processor_handler_14(self):
+        '\n      Receive acknowledgement from the cache controller process.\n      This indicates that the instruction has been executed\n      Reference : Parag Gupta (https://github.com/karthikbox/cache_coherence/tree/p_template/main.da)\n      '
         self.keep_waiting = True
     _Processor_handler_14._labels = None
     _Processor_handler_14._notlabels = None
@@ -342,32 +360,36 @@ class Monitor(da.DistProcess):
         self.elapsed_time = 0
 
     def _da_run_internal(self):
-        _st_label_197 = 0
-        while (_st_label_197 == 0):
-            _st_label_197 += 1
+        _st_label_221 = 0
+        while (_st_label_221 == 0):
+            _st_label_221 += 1
             if False:
-                _st_label_197 += 1
+                _st_label_221 += 1
             else:
-                super()._label('_st_label_197', block=True)
-                _st_label_197 -= 1
+                super()._label('_st_label_221', block=True)
+                _st_label_221 -= 1
 
     def _Monitor_handler_15(self, type, addr, value, cache_id):
+        '\n    Collects all load/store instructions executed by the cache controller\n    '
         self.instructions.append((type, addr, value, cache_id))
     _Monitor_handler_15._labels = None
     _Monitor_handler_15._notlabels = None
 
     def _Monitor_handler_16(self, value):
+        '\n    Keeps track of the total message count in the system\n    '
         self.total_msgs = (self.total_msgs + value)
     _Monitor_handler_16._labels = None
     _Monitor_handler_16._notlabels = None
 
     def _Monitor_handler_17(self, cpu, elapsed):
+        '\n    Get the elapsed time and CPU time\n    '
         self.cpu_time = cpu
         self.elapsed_time = elapsed
     _Monitor_handler_17._labels = None
     _Monitor_handler_17._notlabels = None
 
     def _Monitor_handler_18(self):
+        '\n    Simulation has ended, dislay the results of the simulation\n    '
         print('===Load/Store global order===')
         for ins in self.instructions:
             print(ins[3], ': ', ins[0], ins[1], ins[2])
@@ -380,17 +402,27 @@ class Monitor(da.DistProcess):
     _Monitor_handler_18._labels = None
     _Monitor_handler_18._notlabels = None
 
-def get_traces(trace_file):
-    return [[('r', '0x11111111', 0), ('w', '0x11111111', 3), ('w', '0x11111113', 10)], [('r', '0x11111114', 0), ('r', '0x11111117', 0), ('r', '0x11111111', 0)], "\n          [\n           ('r', '0x11111117'),\n           ('r', '0x11111114'),\n           ('w', '0x11111118')\n          ],\n\n          [\n           ('r', '0x11111112'),\n           ('w', '0x11111116'),\n           ('r', '0x11111113')\n          ]\n          "]
+def get_traces(trace_dir, nprocs):
+    '\n  Extracts the execution traces from the given directory.\n  Reference: Karthik Reddy (https://github.com/karthikbox/cache_coherence/blob/mesi_protocol/main.da)\n  '
+    trace = []
+    for i in range(nprocs):
+        trace_filename = (('p' + str(i)) + '.trace')
+        f = open(os.path.join(trace_dir, trace_filename))
+        insts = []
+        for line in f:
+            insts.append(line.split())
+        trace.append(insts)
+    return trace
 
 def main():
+    '\n    main routine - generic to all protocol implementations:\n      - spawn DistAlgo processes for n processors, n cache controllers and a memory controller \n      - get execution traces for each of the processors\n    Reference : Parag Gupta (https://github.com/karthikbox/cache_coherence/tree/p_template/main.da)\n    '
     nprocessors = (int(sys.argv[1]) if (len(sys.argv) > 1) else 2)
     proto_name = (sys.argv[2] if (len(sys.argv) > 2) else 'MI')
-    trace_file = (sys.argv[3] if (len(sys.argv) > 3) else 'none')
+    trace_dir = (sys.argv[3] if (len(sys.argv) > 3) else './traces')
     da.config(channel='fifo', clock='Lamport')
     start_cpu_time = time.process_time()
     start_elapsed_time = time.perf_counter()
-    trace = get_traces(trace_file)
+    trace = get_traces(trace_dir, nprocessors)
     (Proto_cache, Proto_ctrl) = get_proto_class(proto_name)
     print('-----START-----')
     monitor_obj = da.new(Monitor, num=1)
