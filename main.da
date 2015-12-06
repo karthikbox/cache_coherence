@@ -1,14 +1,18 @@
 """
 MOESI cache coherence protocol implementation in DistAlgo
-based on the online implementation - https://github.com/samuelbritt/CS6290-prj3
-To implement the protocol in DistAlgo, I am using directory-based protocol logic.
+based on the transition diagram as explained in 8th Chapter of 
+Sorin, Daniel J., Mark D. Hill, and David A. Wood. "A primer on memory consistency and 
+cache coherence." Synthesis Lectures on Computer Architecture 6.3 (2011): 1-212.
+To implement the protocol in DistAlgo, I used Directory Controller based implementation.
+
 Note: The basic structural view for the protocol is same for our group and hence certain classes/methods
       which are common to all protocols is part of the intial setup. The other members of the group are
       Parag Gupta, Karthik Reddy, Garima Gehlot and Paul Mathew.
-      Particularly for MOESI protocol, I am working for Karthik Reddy for MESI protocol implementation
-      as their are some minor changes to be done to convert MESI->MOESI protocol.
-      So, majorly the code with Karthik Reddy will be same excluding the explicit changes I need to do 
-      to make it MOESI protocol.
+      Particularly for MOESI protocol, I worked with Karthik Reddy for MESI protocol implementation
+      as MOESI is based on MESI protocol with an additional inclusion of 'Owner' state.
+    
+      Code is referenced in comments where it has been copied.
+
 """
 
 import sys
@@ -31,7 +35,7 @@ def get_proto_class(name):
 """
 class MOESI_Cache(process):
   """
-  This class denotes the object for the local- cache corresponding a particular processor.
+  Each instance of this class represents Cache Controller of CACHE_SIZE corresponding to each Processor's local-cache.
   It contains the main logic for handling 5 states of the protocol and is responsible for the state 
   transitions for the cache data entries.
   The implementation is based on the state transitions as explained in the following mentioned book (Chapter 8).
@@ -43,7 +47,6 @@ class MOESI_Cache(process):
   """
   def setup(dir_ctrlr, other_caches, size,monitor_obj):
     self.memory = []
-    
     self.pending_actions=[]
     self.current_state="READY"
     
@@ -55,6 +58,9 @@ class MOESI_Cache(process):
       processRequest()
 
   def processRequest():
+    """
+    Handler function to take each pending request in the pending_actions queue and process them.
+    """
     #deque request
     # (inst,addr,to_process,data)=pending_actions.pop(0)
     t=pending_actions.pop(0)
@@ -79,6 +85,9 @@ class MOESI_Cache(process):
  
 
   def perform_replacement(t):
+    """
+    Cache Eviction requests handler function.
+    """
     assert t[1]!='INVALID',"invalid state in replacement"
     # the current_state should be ready for eviction
     assert current_state=='READY', "invalid current_state in replacement"
@@ -118,11 +127,14 @@ class MOESI_Cache(process):
          
 
   def perform_fwd_getm(addr,to_process,ack):
+    """
+    Fwd_GetM message handler function
+    """
     output("in perform_fwd_getm begin: %r" %memory)
     res=[x for x in memory if x[0]==addr]
     assert len(res)>0,'address not in memory. Fwd_getM. addr_rvd=%r' %addr
-    assert res[0][1]!='INVALID','address in INVALID state Fwd_getS.'
-    assert res[0][1]!='SHARED','address in SHARED state Fwd_getS.'
+    assert res[0][1]!='INVALID','address in INVALID state Fwd_getM.'
+    assert res[0][1]!='SHARED','address in SHARED state Fwd_getM.'
     # get index of the cache memory tuple from memory
     # pop that tuple, insert new tuple at index again, new tuple's state changed to SHARED
     # mem tuple will not be at the head of the LRU
@@ -154,6 +166,9 @@ class MOESI_Cache(process):
 
 
   def perform_fwd_gets(addr,to_process):
+    """
+    Fwd_GetS message handler function
+    """
     output("in perform_fwd_getS begin: %r" %memory)
     res=[x for x in memory if x[0]==addr]
     assert len(res)>0,'address not in memory. Fwd_getS. addr_rvd=%r' %addr
@@ -202,7 +217,12 @@ class MOESI_Cache(process):
     output("in perform_inv %r"%memory)
 
   def perform_load(addr,to_process):
-    """ load the value of a particular address in the cache. """
+    """
+    Read request handler function for address 'addr'.
+    If the cache entry is in Shared, Exclusive or Owner state, then just update the LRU and return the value present.
+    If the cache entry is in Invalid, request the Directory Controller with GetS message.
+    Depends on the E or S state in Dir Ctrl, entry will be converted to E or S state.
+    """
     assert current_state=='READY', "state is not in READY state but in %r" % current_state
     # check state of addr in mem
     # tuple in memory is of the form (addr,status,value)
@@ -242,7 +262,17 @@ class MOESI_Cache(process):
     send(('inc_msg_cnt', 1), to=monitor_obj)
 
   def perform_store(addr,to_process,data):
-    """ store the value of a particular address in the cache. """
+    """
+    Write request handler for address 'addr' with value 'data'
+    If the cache entry is in M state, just update the corresponding value and return.
+    In all other states, request Dir Ctrl with GetM message. 
+    Depending upon the cache entry states in  Directory Controller, following thing happens :-
+    If in O state, invalidate all sharers and go to M state, return.
+    If in E state, goto M.
+    If in S state, invalidate all sharers and Owner, write data to Memory from Owner, goto M state.
+    If in I state, request data from memory.
+    Having M state guarantees this as the only copy in the system.
+    """
     assert current_state=='READY', "state is not in READY state but in %r" % current_state
     #check the state of addr and act accordingly
     res=[x for x in memory if x[0]==addr ]
@@ -302,10 +332,7 @@ class MOESI_Cache(process):
              it will reply to Dir and current Cache with "DatafromOwner" msg.
       c) O : Directory will forward the load msg to Owner Cache of data entry, Owner state from M/O -> O and 
              it will reply to Dir and current Cache with "DatafromOwner" msg.      
-    """
-    """
-      If the Directory entry is in state 'I',
-      Directory transition from I->E and and cache transition from I->E using the "ExclDatafromDir" msg from Directory class.
+      d) I : Directory transition from I->E and and cache transition from I->E using the "ExclDatafromDir" msg from Directory Controller.
     """
     res=[x for x in memory if x[0]==addr]
     assert len(res)>0,"couldnt find addr in memory"
@@ -360,6 +387,9 @@ class MOESI_Cache(process):
 
 
   def move_IMAD_to_M(addr,data):
+    """
+    Transient state handling which can occur in I->M and O->M transitions.
+    """
     await(current_state=='INVALID_MODIFIED_ACK' or current_state=='MODIFIED')
     assert memory[0][1]!='INVALID_MODIFIED_ACK_DATA','memory state corrupted'
     if current_state=='MODIFIED':
@@ -371,7 +401,8 @@ class MOESI_Cache(process):
 
   def move_O_to_M(addr,data):
     """
-    Cache entry will be in O state when Directory entry is in O state. This will cause Directory to send Inv request to all sharer caches.
+    Cache entry will be in O state when Directory entry is in O state. 
+    Transition to M state will cause Directory to send Inv request to all sharer caches.
     Sharer caches will make S->I transition and send Inv-Ack to requesting cache. Directory will also send AckCount msg to requesting cache 
     which will help the requesting cache to wait till AckCount.
     """
@@ -442,6 +473,7 @@ class MOESI_Cache(process):
     current_state='READY'
 
   def move_E_to_M(addr,data):
+    """ Simple transition to M state as both state guarantees only copy in the system """
     # goto MODIFIED state. no other actions
     res=[x for x in memory if x[0]==addr]
     assert len(res)>0,"couldnt find addr in memory"
@@ -455,7 +487,10 @@ class MOESI_Cache(process):
 
 
   def add_to_memory(t):
-    """ add tuple t to the head of memory list. format of tuple t = (address,state,value) """
+    """ 
+    add tuple t to the head of cache memory list data structure. 
+    format of tuple t = (address,state,value) 
+    """
     # check size of memory, if size>= CACHE_SIZE, pop the last element and add the new tuple at the head
     # otherwise, insert at head directly
     if len(memory) >= CACHE_SIZE:
@@ -474,7 +509,10 @@ class MOESI_Cache(process):
     
 
   def update_lru_position_of(t):
-    """ move tuple t to the head of the memory list. t=(address,state,value) """
+    """ 
+    LRU cache algorithm handling.
+    Move tuple t to the head of the memory list.
+    """
     # t should be present int the memory list
     assert t in memory, "tuple %r should exist in memory"
     memory.remove(t)
@@ -483,7 +521,7 @@ class MOESI_Cache(process):
 
   def receive(msg=('exclusive_data_from_dir',addr,val_rvd), from_=s):
     """ 
-    Exclusive data msg from the Directory to cache when none of the caches contain requesting data entry, hence I->E is done 
+    Exclusive data msg from the Directory to cache when none of the caches contain requesting data entry, hence I->E is done. 
     """
     if current_state=='INVALID_SHARED_DATA' and addr==memory[0][0]:
       # move to EXCLUSIVE state, update the state in memory for the address
@@ -496,6 +534,10 @@ class MOESI_Cache(process):
 
 
   def receive(msg=('ackcount_from_dir',ack,addr), from_=s):
+    """
+    The Directory will send the Count of the acks that requesting cache should receive when O->M transition happens and 
+    all sharers need to Invalidate their data entries
+    """
     res = [ x for x in memory if x[0]==addr]
     assert len(res)>0,"couldnt find addr in memory"
     assert memory[0][0]==addr,"current addr request should be at he head of memory LRU, but it isn't not, ackcount_from_dir"
@@ -508,6 +550,9 @@ class MOESI_Cache(process):
       assert False,'not a valid state for ackcount_from_dir : %r and mem : %r'%(current_state,res[0])
 
   def receive(msg=('data_from_dir',ack,addr,val_rvd), from_=s):
+    """
+    Data from Directory Controller receive handler to receive data and ackcount in some state transitions.
+    """
     if current_state=='INVALID_SHARED_DATA' and addr==memory[0][0] and ack==0:
       # move to SHARED state
       current_state='SHARED'
@@ -541,6 +586,10 @@ class MOESI_Cache(process):
       assert False, "received out-of-state message. Should not happen. data_from_dir. CURRENT_STATE=%r,ack_count=%r, addr rcvd=%r" % (current_state,ack,addr)
 
   def receive(msg=('data_from_owner',addr,val_rvd), from_=s):
+    """
+    Receive handler for data message from the other caches which are currently the having the data entry in E or M state.
+    This message is received in response I->S and S->M state transitions.
+    """
     if current_state=='INVALID_SHARED_DATA' and addr==memory[0][0]:
       # move to SHARED state
       current_state='SHARED'
@@ -563,6 +612,10 @@ class MOESI_Cache(process):
       assert False, "received out-of-state message. Should not happen. data_from_owner. current_state %r, addr %r" %(current_state,addr)
 
   def receive(msg=('Put_Ack',addr,p), from_=s):
+    """
+    Write to memory message receive handler.
+    This message is received when data is evicted from cache to be written to memory in case of evictions while cache entry is in any state.
+    """
     res = [ x for x in memory if x==addr]
     assert len(res)>0, "addr not in cache memory %r" %addr
     assert res[1]!='INVALID', "memory state not valid for put-ack"
@@ -577,6 +630,9 @@ class MOESI_Cache(process):
 
   
   def receive(msg=('Inv_Ack',addr,p), from_=s):
+    """
+    The sharer of a cache entry will send invalidate ack to requesting cache for it to make successful I/S/O->M transition
+    """
     # state has to be in INVALID_MODIFIED_ACK
     if current_state=='INVALID_MODIFIED_ACK' and addr==memory[0][0]:
       t=memory.pop(0)
@@ -627,6 +683,7 @@ class MOESI_Cache(process):
 
 
   def receive(msg=('Inv',addr,p), from_=s):
+    """ Invalidating request message from Directory Controller """
     res=[x for x in memory if x[0]==addr]
     assert len(res)>0,'addr_rcvd=%r not in memory'%addr
     if(res[0][1]=='SHARED'):
@@ -640,6 +697,7 @@ class MOESI_Cache(process):
     
 
   def receive(msg=('Fwd_GetS',addr,p), from_=s):
+    """ Receive handler of fwd-gets messages from the directory controller """
     res=[x for x in memory if x[0]==addr]
     if res[0][1] in ['EXCLUSIVE','MODIFIED','EXCLUSIVE_INVALID_ACK','MODIFIED_INVALID_ACK','OWNER','OWNER_MODIFIED_ACK_COUNT','OWNER_MODIFIED_ACK']:
       perform_fwd_gets(addr,p)
@@ -647,6 +705,7 @@ class MOESI_Cache(process):
       pending_actions.append(('fwd_gets',addr,p))
 
   def receive(msg=('Fwd_GetM',addr,p), from_=s):
+    """ Receive handler of fwd-getm messages from the directory controller """
     res=[x for x in memory if x[0]==addr]
     if res[0][1] in ['EXCLUSIVE','MODIFIED','EXCLUSIVE_INVALID_ACK','MODIFIED_INVALID_ACK','OWNER_MODIFIED_ACK_COUNT']:
       perform_fwd_getm(addr,p,0)
@@ -654,32 +713,41 @@ class MOESI_Cache(process):
       pending_actions.append(('fwd_getm',addr,p))
 
   def receive(msg=('Fwd_GetM',addr,p,ack), from_=s):
+    """ 
+    Receive handler of fwd-getm messages with acknowledgement from the directory controller 
+    This receive handler is created to handler a special case in MOESI protocol when Owner cache needs to forward the ack
+    received from the directory controller to the requesting cache.
+    """
     res=[x for x in memory if x[0]==addr]
     if res[0][1] in ['OWNER','OWNER_MODIFIED_ACK_COUNT']:
       perform_fwd_getm(addr,p,ack)
 
   def receive(msg=('load',addr, p), from_=s):
+    """ Receive handler for the load requests from the Processor class. """      
     self.pending_actions.append(('load',addr, s))
     output("Received LOAD request for addr %s" % addr)
  
   def receive(msg=('store',addr, p, data), from_=s):
+    """ Receive handler for the store requests from the Processor class. """      
     self.pending_actions.append(('store',addr, s, data))
     output("Received STORE request for addr %s" % addr);
  
   def receive(msg= ('done',)):
+    """ Receive handler to terminate this cache controller process whenever this message is received """
     print("Cache Exiting\n")
     exit()
 
 class MOESI_Directory(process):
   """
-  MOESI directory controller class.
-  This class simulates the shared directory between caches and is responsible for managing data in the memory.
+  MOESI Directory Controller class.
+  This class simulates the centralized directory between caches and is responsible for managing data in the memory.
   This is a single process which handles all access requests from all the processor caches.
   It keeps track of all data entries and their states corresponding to memory.
   Reference : 
   Sorin, Daniel J., Mark D. Hill, and David A. Wood. "A primer on memory consistency and 
   cache coherence." Synthesis Lectures on Computer Architecture 6.3 (2011): 1-212.
-  Karthik Reddy : https://github.com/karthikbox/cache_coherence/blob/mesi_protocol/submit_files/mesi_protocol_main.txt
+  Together implemented with Karthik Reddy. So design and some APIs are same with him (with all the necessary changes required for MOESI protocol):-
+  https://github.com/karthikbox/cache_coherence/blob/mesi_implementation/main.da
   """
   def setup(cache_protocol_objs,monitor_obj):
     self.pending_actions=[]
@@ -695,6 +763,9 @@ class MOESI_Directory(process):
 
   
   def processRequest():
+    """
+    Handler function to take each pending request in the pending_actions queue and process them.
+    """
     # deque request
     t=pending_actions.pop(0)
     #possible instructions are : loads,stores, invlalidate
@@ -721,6 +792,7 @@ class MOESI_Directory(process):
 
 
   def perform_putS(addr,to_process):
+    """ PutS message handler function """
     # remove req from sharers, send Put-Ack to req, if no sharer after removing this, 
     # go to INVALID state, otherwise S->S.
     assert to_process in memory[addr][2],'to_process not in sharers list'
@@ -731,6 +803,7 @@ class MOESI_Directory(process):
     send(('inc_msg_cnt', 1), to=monitor_obj)
 
   def perform_putO(addr,to_process,data):
+    """ PutO message handler function """
     assert memory[addr]=='OWNER','memory state corrupted, perform_putO'
     # copy data to memory
     # send put-ack to req
@@ -746,6 +819,7 @@ class MOESI_Directory(process):
     send(('inc_msg_cnt', 1), to=monitor_obj)
 
   def perform_putM(addr,to_process,data):
+    """ PutM message handler function """
     assert memory[addr]=='MODIFIED','memory state corrupted, perform_putM'
     time.sleep(0.1)
     # copy data to memorry
@@ -759,6 +833,7 @@ class MOESI_Directory(process):
     send(('inc_msg_cnt', 1), to=monitor_obj)
 
   def perform_putE(addr,to_process):
+    """ PutE message handler function """
     assert memory[addr]=='EXCLUSIVE','memory state corrupted'
     # send put-ack to req
     # clear owner
@@ -769,6 +844,16 @@ class MOESI_Directory(process):
     send(('inc_msg_cnt', 1), to=monitor_obj) 
 
   def perform_getS(addr,to_process):
+    """ 
+    getS message handler function 
+    Following cases are there depending upon cache entry state in Directory Controller :-
+    I : Data is read from memory (100ms delay is added to simulate this behaviour)
+        And returned back to requesting cache with exclusive_data_from_dir message, I->E state changed.
+    S : Data is returned to requesting cache using data_from_dir message.
+    E : fwd-gets message is sent to exclusive owner and state is changed to shared.
+    M : fwd-gets message is sent to owner cache and state is changed to owner.
+    O : fwd-gets message is sent to owner cache.
+    """
     # key -value : memory_addr, [state,owner,[sharers],value]
     assert addr in memory, "address %r not in memory" % addr
     if memory[addr][0]=='INVALID':
@@ -813,7 +898,19 @@ class MOESI_Directory(process):
 
 
   def perform_getM(addr,to_process):
-    # key -value : memory_addr, [state,owner,[sharers],value]
+    """ 
+    getM message handler function 
+    Following cases are there depending upon cache entry state in Directory Controller :-
+    I : Data is written to memory (100ms delay is added to simulate this behaviour)
+        And data_from_dir message is returned back to requesting cache, I->M state changed.
+    S : Data is returned to requesting cache using data_from_dir message and length of sharers as ack.
+        Inv message is sent to all sharers, state change S->M.
+    E : fwd-getm message is sent to exclusive owner and state is changed to M.
+    M : fwd-getm message is sent to owner cache and owner is changed to requesting cache.
+    O : fwd-gets message is sent to owner cache with ack count, inv messages to all sharers
+        and state change to M.
+    """
+   # key -value : memory_addr, [state,owner,[sharers],value]
     assert addr in memory, "address %r not in memory, current memory state %r " % (addr,memory[addr][0]) 
     output("addr_rcvd=%r, state in memory=%r"%(addr,memory[addr][0]))
     if memory[addr][0]=='INVALID':
@@ -882,27 +979,35 @@ class MOESI_Directory(process):
 
 
   def receive(msg=('GetS',addr), from_=p):
-    """ Put it in pending queue"""
+    """ Read Request from caches """
     pending_actions.append(('GetS',addr,p))
 
   def receive(msg= ('GetM',addr), from_= p):
-    """ Put it in pending queue"""
+    """ Write Request from caches """
     pending_actions.append(('GetM',addr,p))
 
   def receive(msg= ('PutS',addr), from_= p):
-    """ Put it in pending queue"""
+    """ Write-back Request from caches when cache needs to evict this data entry (no write to memory) which can make S->S/I transition.
+    Put it in pending queue.
+    """
     pending_actions.append(('PutS',addr,p))
 
   def receive(msg= ('PutM',addr,data), from_= p):
-    """ Put it in pending queue"""
+    """ Write-back Request with data from caches when cache needs to evict this data entry (no write to memory). Will transition from M->O state
+    Put it in pending queue.
+    """
     pending_actions.append(('PutM',addr,p,data))
 
   def receive(msg= ('PutE',addr), from_= p):
-    """ Put it in pending queue"""
+    """ Write-back Request from caches when cache needs to evict this data entry (no write to memory)
+    Put it in pending queue
+    """
     pending_actions.append(('PutE',addr,p))
 
   def receive(msg= ('PutO',addr,data), from_= p):
-    """ Put it in pending queue"""
+    """ Write-back Request with data from caches when cache needs to evict this data entry (write to memory) which can make S->S/I transition.
+    Put it in pending queue
+    """
     pending_actions.append(('PutO',addr,p,data))
 
   def receive(msg= ('done',)):
@@ -910,10 +1015,20 @@ class MOESI_Directory(process):
     exit()
 
 class Processor(process):
+    """
+  Processor Class:
+  This class simulates the read/write requests of each processor.
+  Implementation wise, it makes read/write requests to cache controller one at a time.
+  Since this is a part of common platform on which the team will do the evaluations, copied it from following :-
+  Reference: Parag Gupta. https://github.com/karthikbox/cache_coherence/tree/p_template/main.da
+    """
     def setup(trace, protocol,monitor_obj):
       self.keep_waiting = False
     
     def execute(inst):
+      """
+      Each load/store requests are made to cache controller one at a time using this function. 
+      """
       if inst[0] == "r":
         send(('load',inst[1] , self.id), to=protocol)
         send(('inc_msg_cnt', 1), to=monitor_obj) 
@@ -935,6 +1050,9 @@ class Processor(process):
       keep_waiting = True
 
 def get_traces(trace_dir, nprocs):
+  """
+  Helper function to read trace files from the trace directory
+  """
   trace=[]
   for i in range(nprocs):
     trace_filename='p'+str(i)+'.trace'
@@ -957,7 +1075,7 @@ class Monitor(process):
                            (iii)CPU time taken by the protocol
 
     This part is common to all the 
-    Generic to all protocol implementations. Copied it from following :-
+    Generic to all protocol implementations. Copied it from following reference with some changes to make colored output :-
     Reference: Paul Mathew. https://github.com/karthikbox/cache_coherence/blob/mi_protocol/mi_protocol.da
   """
   def setup():
@@ -970,9 +1088,17 @@ class Monitor(process):
     instructions.append((type, addr, value, cache_id,lc))
 
   def receive(msg= ('inc_msg_cnt', value)):
+    """
+    Receive handler for total message count.
+    Used to calculate total number of messages used in the protocol for cache coherence.
+    """
     total_msgs = total_msgs + value
 
   def receive(msg= ('time_taken', cpu, elapsed)):
+    """
+    Receive handler to measure CPU and ELAPSED time used by the protocol
+    for a given number of Processors and given traces
+    """
     cpu_time = cpu
     elapsed_time = elapsed 
 
@@ -980,6 +1106,10 @@ class Monitor(process):
     await(False)
     
   def receive(msg= ('done',)):
+    """
+    When all the Processor class are done with processing load/store request, 
+    this handler is used to print all the correctness checking invariants and proformance benchmarking numbers.
+    """
     print(colored(("===Load/Store global order==="),'blue'))
     for ins in instructions:
       if ins[0]=='load':
@@ -998,7 +1128,7 @@ def main():
   Main driver function to simulate the running behaviour of cache coherence protocol with 
   given number of processors, protocol name and trace file path.
   Command should be passed in the following way :
-  dar main.da 'n' "Protocol" "Path",
+  dar main.da <num_processors> <protocol_name> <tracefile_path>
   where n - # of processors ( local-caches)
         Protocol - Protocol Name (MI/MSI/MESI/MOSI/MOESI)
         Path - Path of the trace file to run with
