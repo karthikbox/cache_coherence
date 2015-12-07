@@ -5,7 +5,6 @@ import os
 ENOTSUPP = 2
 CACHE_SIZE = 512
 
-
 class MOSI_PROTO_CTRL(process):
   def setup(cache_protocol_objs):
     self.pending_actions=[]
@@ -179,9 +178,10 @@ class MOSI_PROTO_CTRL(process):
 
 def get_proto_class(name):
   if name == "MOSI":
-    return (eval("MOSI_PROTO_CACHE"), eval("MOSI_PROTO_CTRL"))
+   return (eval("MOSI_PROTO_CACHE"), eval("MOSI_PROTO_CTRL"))
   else:
-    exit(-ENOTSUPP)
+   exit((-ENOTSUPP))
+
 
 ## Exemplary implementation of PROTOCOL Classes
 """
@@ -597,43 +597,85 @@ def get_traces(trace_dir,nprocs):
     trace.append(insts)
   return trace
 
+class Monitor(process):
+  def setup():
+    self.instructions = []
+    self.total_msgs = 0
+    self.cpu_time = 0
+    self.elapsed_time = 0
+   
+  def receive(msg= ('ins', type, addr, value, cache_id,lc)):
+    instructions.append((type, addr, value, cache_id,lc))
+
+  def receive(msg= ('inc_msg_cnt', value)):
+    total_msgs = total_msgs + value
+
+  def receive(msg= ('time_taken', cpu, elapsed)):
+    cpu_time = cpu
+    elapsed_time = elapsed 
+
+  def run():
+    await(False)
+    
+  def receive(msg= ('done',)):
+    print("===Load/Store global order===")
+    for ins in instructions:
+      print(ins[3], " : ", ins[0], ins[1], ins[2])
+    print()
+    print("===Benchmarks===")
+    print("Total msg count:", total_msgs)
+    print("Elapsed time:", elapsed_time)
+    print("CPU time:", cpu_time)
+    exit()
+
 
 def main():
     nprocessors = int(sys.argv[1]) if len(sys.argv) > 1 else 2
-    proto_name = sys.argv[2] if len(sys.argv) > 2 else 'MOSI'
+    proto_name = sys.argv[2] if len(sys.argv) > 2 else 'MI'
     trace_dir = sys.argv[3] if len(sys.argv) > 3 else './traces'
 
-#    config(channel= 'fifo', clock= 'Lamport')
-
+    config(channel= 'fifo', clock= 'Lamport')
+    
+    start_cpu_time = time.process_time()
+    start_elapsed_time = time.perf_counter()    
+    
     trace = get_traces(trace_dir,nprocessors)
+    #print(trace)
     Proto_cache, Proto_ctrl = get_proto_class(proto_name)
+    
+    print('-----START-----')
+    ## Start monitor process
+    monitor_obj = new(Monitor, num=1)
+    setup(monitor_obj, ())
+    start(monitor_obj)
 
+    
     ## Initialize protocol objs for caches and controller
     mem_ctrl_protocol_obj = new(Proto_ctrl, num=1)
     protocol_objs = new(Proto_cache, num=nprocessors)
-
+    
     ## Setup Protocol for ctrller
-    setup(mem_ctrl_protocol_obj, (protocol_objs,))
+    setup(mem_ctrl_protocol_obj, (protocol_objs,monitor_obj))
     start(mem_ctrl_protocol_obj)
 
     ## Setup Protocols for caches
     for proto_obj in protocol_objs:
-      setup(proto_obj, (mem_ctrl_protocol_obj, protocol_objs - {proto_obj}, CACHE_SIZE))
+      setup(proto_obj, (mem_ctrl_protocol_obj, protocol_objs - {proto_obj}, CACHE_SIZE,monitor_obj))
       start(proto_obj)
 
     ## Setup Processors
     processors = new(Processor, num= nprocessors)
-
+    
     ## temp lists for iterating
     processors_list = list(processors)
     protocol_objs_list = list(protocol_objs)
-    for i in range(nprocessors):
-      setup(processors_list[i], (trace[i], protocol_objs_list[i]))
-
+    for i in range(nprocessors): 
+      setup(processors_list[i], (trace[i], protocol_objs_list[i],monitor_obj))
+    
     start(processors)
-
-    ## Exiting logic
-    for p in processors:
+    
+    ## Exiting logic  
+    for p in processors: 
       p.join()
 
     da.send(('done',), to= protocol_objs)
@@ -643,5 +685,13 @@ def main():
     da.send(('done',), to= mem_ctrl_protocol_obj)
     for m in mem_ctrl_protocol_obj:
       m.join()
-    print('-----END-----')
 
+    end_cpu_time = time.process_time()
+    end_elapsed_time = time.perf_counter()
+
+    da.send(('time_taken', end_cpu_time-start_cpu_time, end_elapsed_time-start_elapsed_time), to= monitor_obj)
+    
+    da.send(('done',), to= monitor_obj)
+    for monitor in monitor_obj:
+      monitor.join()
+    print('-----END-----')
