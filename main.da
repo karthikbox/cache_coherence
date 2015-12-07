@@ -1,3 +1,20 @@
+
+"""
+MOSI cache coherence protocol implementation in DistAlgo
+based on the online implementation - https://github.com/samuelbritt/CS6290-prj3
+This implementation is directory-based cache coherence protocol.
+
+Note: The basic structural view for the protocol is same for our group and hence
+      certain classes/methods which are common to all protocols is part of the 
+      intial setup. The other members of the group are:
+      Parag Gupta, Karthik Reddy, Amit Khandelwal and Paul Mathew.
+      Particularly for my implementation, most of my code will be similiar to
+      Karthik Reddy as we followed the same table for implementation and since we
+      had common states, so work is somewhat similar except changes for different states. 
+      And I referred Karthik Reddy MESI code for most of the states as we have 3 states in common.
+      ('M', 'S', 'I')
+"""
+
 import sys
 import time
 import os
@@ -5,9 +22,24 @@ import os
 ENOTSUPP = 2
 CACHE_SIZE = 512
 
+
+"""
+  MOSI Protocol Directory Controller class
+"""
 class MOSI_PROTO_CTRL(process):
-  def setup(cache_protocol_objs):
+
+  """
+  MOSI directory controller class.
+  Reference : 
+  Sorin, Daniel J., Mark D. Hill, and David A. Wood. "A primer on memory consistency and 
+  cache coherence." Synthesis Lectures on Computer Architecture 6.3 (2011): 1-212.
+  """
+
+  def setup(cache_protocol_objs, mon_process):
+    # actions are queued to enforce serialization
     self.pending_actions=[]
+
+    #Directory Controller Hashmap
     self.directory_ctrlr = dict()
     directory_ctrlr['0x11111114']=['INVALID',None,[],212]
 
@@ -36,15 +68,17 @@ class MOSI_PROTO_CTRL(process):
 
     if(instruction == 'GetS'):
       # get the block address for read operation
+      send(('cache_miss', ), to=mon_process)
       getS(cache, block_addr)
     elif(instruction == 'GetM'):
       # get the block address for write operation
+      send(('cache_miss', ), to=mon_process)
       getM(cache, block_addr)
     elif(instruction=='PutS'):
       putS(block_addr, cache)
     elif(instruction=='PutM'):
       putM(block_addr, cache, action[3])
-    elif(instruction=='PutE'):
+    elif(instruction=='PutO'):
       putO(block_addr, cache)
     else: 
       print('Invalid request')
@@ -54,34 +88,53 @@ class MOSI_PROTO_CTRL(process):
   # Get the block address for reading
   def getS(cache, block_addr):
 
+    """
+    Load request result in a GetS request from the Processor cache to the 
+    Directory controller. Then depending on the state of the block address
+    in the directory transition happens:
+    """ 
+ 
     #get the state of the block in the directory controller
     tuple = directory_ctrlr[block_addr];
     state = tuple[0];
 
     #check the state and correspond to other caches accordingly
     if(state == "INVALID"):
-      state = "SHARED"
+       # block copy needs to be fetched from the memory
+      directory_ctrlr[block_addr][0] = "SHARED"; 
       directory_ctrlr[block_addr][2].append(cache)
       send(("data_from_DC", 0, block_addr, tuple[3]), to=cache)
+      send(('inc_msg_cnt', 1), to=mon_process)
     elif(state == "SHARED"):
+      # block copy with the Directory Controller
       directory_ctrlr[block_addr][2].append(cache)
       send(("data_from_DC", 0, block_addr, tuple[3]), to=cache)
+      send(('inc_msg_cnt', 1), to=mon_process)
     elif(state == "MODIFIED"):
-      state = "OWNED"
+      # block copy needs to be fetched from the Owner
+      directory_ctrlr[block_addr][0] = "OWNED" 
       directory_ctrlr[block_addr][2].append(cache)
       send(("Fwd_GetS", cache, block_addr), to=directory_ctrlr[block_addr][1])
+      send(('inc_msg_cnt', 1), to=mon_process)
     elif(state == "OWNED"):
+      # block copy needs to be fetched from the Owner
       directory_ctrlr[block_addr][2].append(cache)
       send(("Fwd_GetS", cache, block_addr), to=directory_ctrlr[block_addr][1])
+      send(('inc_msg_cnt', 1), to=mon_process)
     else:
       print('DC: State not supported!')
 
-    directory_ctrlr[block_addr][0] = state; 
 
 
   # get the block address for writing
   def getM(cache, block_addr):
     
+    """
+    Store request result in a GetM request from the Processor cache to the 
+    Directory controller. Then depending on the state of the block address
+    in the directory transition happens:
+    """ 
+ 
     #get the state of the block in the directory controller
     tuple = directory_ctrlr[block_addr];
     state = tuple[0];
@@ -90,33 +143,47 @@ class MOSI_PROTO_CTRL(process):
     ack_count = 0
 
     if (state == "INVALID"):
+      # block copy needs to be fetched from the memory
       send(('data_from_DC', 0, block_addr, data), to= cache);
+      send(('inc_msg_cnt', 1), to=mon_process)
       directory_ctrlr[block_addr][1] = cache
       directory_ctrlr[block_addr][2] = [] 
 	
     elif(state == "SHARED"):
+      # block copy with the Directory Controller
+      # clean state, data in memory is consistent
+      # with the cache copy
       if cache in directory_ctrlr[block_addr][2]:
         directory_ctrlr[block_addr][2].remove(cache)
 
+      directory_ctrlr[block_addr][1] = cache
       ack_count = len(directory_ctrlr[block_addr][2])
       send(('data_from_DC', ack_count, block_addr, data), to=cache)
       send(('Invalidate', cache, block_addr),to={x for x in directory_ctrlr[block_addr][2]})
-      directory_ctrlr[block_addr][1] = cache
+      send(('inc_msg_cnt', 2), to=mon_process)
       directory_ctrlr[block_addr][2] = []
  
     elif(state == "MODIFIED"):
+      # Latest block copy with the another cache
+      # forwards the request to the Owner
       send(('Fwd_GetM', cache, block_addr, 0), to= directory_ctrlr[block_addr][1]);
+      send(('inc_msg_cnt', 1), to=mon_process)
       directory_ctrlr[block_addr][1] = cache
 
     elif (state == "OWNED"):
+      # most updated copy with another cache and other cache might
+      # be sharing this copy.
+      # Directory controller Invalidates other cache's copy 
       ack_count = len(directory_ctrlr[block_addr][2])
       if ( cache == directory_ctrlr[block_addr][1]):
         send(('Ack_cnt', ack_count, block_addr), to=cache)
         send(('Invalidate', cache, block_addr),to={x for x in directory_ctrlr[block_addr][2]})
+        send(('inc_msg_cnt', 2), to=mon_process)
       else:
         send(('Ack_cnt', ack_count, block_addr), to=cache)
         send(('Fwd_getM', cache, block_addr, ack_count), to= directory_ctrlr[block_addr][1]);
         send(('Invalidate', cache, block_addr),to={x for x in directory_ctrlr[block_addr][2]})
+        send(('inc_msg_cnt', 3), to=mon_process)
         directory_ctrlr[block_addr][1] = cache 
       directory_ctrlr[block_addr][2] = []
     else:
@@ -130,12 +197,14 @@ class MOSI_PROTO_CTRL(process):
     if(len(directory_ctrlr[addr][2])==0):
       directory_ctrlr[addr][0]='INVALID'
     send(('Put_Ack',addr,self.id),to=proc)
+    send(('inc_msg_cnt', 1), to=mon_process)
 
   def putM(addr,proc,data):
     directory_ctrlr[addr][3]=data
     directory_ctrlr[addr][1]=None
     directory_ctrlr[addr][0]='INVALID'
     send(('Put_Ack',addr,self.id),to=proc)
+    send(('inc_msg_cnt', 1), to=mon_process)
 
   def putO(addr,proc,data):
     directory_ctrlr[addr][3]=data
@@ -144,28 +213,30 @@ class MOSI_PROTO_CTRL(process):
       directory_ctrlr[addr][0]='SHARED'
     else:
       directory_ctrlr[addr][0]='INVALID'
+    directory_ctrlr[addr][2] = []
     send(('Put_Ack',addr,self.id),to=proc)
+    send(('inc_msg_cnt', 1), to=mon_process)
 
 
   def receive(msg=('GetS',addr), from_=p):
-    """ Put it in pending queue"""
+    """ Add it to the pending queue"""
     pending_actions.append(('GetS',addr,p))
 
   def receive(msg= ('GetM',addr), from_= p):
-    """ Put it in pending queue"""
+    """ Add it to the pending queue"""
     pending_actions.append(('GetM',addr,p))
 
   def receive(msg= ('PutS',addr), from_= p):
-    """ Put it in pending queue"""
+    """ Add it to the pending queue"""
     pending_actions.append(('PutS',addr,p))
 
   def receive(msg= ('PutM',addr,data), from_= p):
-    """ Put it in pending queue"""
+    """ Add it to the pending queue"""
     pending_actions.append(('PutM',addr,p,data))
 
-  def receive(msg= ('PutO',addr), from_= p):
-    """ Put it in pending queue"""
-    pending_actions.append(('PutO',addr,p))
+  def receive(msg= ('PutO',addr, data), from_= p):
+    """ Add it to the pending queue"""
+    pending_actions.append(('PutO',addr,p, data))
 
   def receive(msg= ('data',addr,data), from_= p):
     directory_ctrlr[addr][3]=data
@@ -178,17 +249,26 @@ class MOSI_PROTO_CTRL(process):
 
 def get_proto_class(name):
   if name == "MOSI":
-   return (eval("MOSI_PROTO_CACHE"), eval("MOSI_PROTO_CTRL"))
+    return (eval("MOSI_PROTO_CACHE"), eval("MOSI_PROTO_CTRL"))
   else:
-   exit((-ENOTSUPP))
+    exit(-ENOTSUPP)
 
-
-## Exemplary implementation of PROTOCOL Classes
 """
   MOSI Protocol class:
 """
 class MOSI_PROTO_CACHE(process):
-  def setup(DC, other_caches, size):
+
+  """
+  This class denotes the object for the local cache corresponding to a particular processor.
+  It contains the main logic for handling 4 states ('M', 'O', 'S', 'I') of the protocol and is responsible for the state 
+  transitions for the cache data entries.
+  The implementation is based on the state transitions as explained in the following mentioned book.
+  Reference : Sorin, Daniel J., Mark D. Hill, and David A. Wood. "A primer on memory consistency and 
+  cache coherence." Synthesis Lectures on Computer Architecture 6.3 (2011): 1-212.
+  Book contains the state transition diagram and a detailed table of transition intermeditate steps and actions to be taken for MOSI protocol.
+  """ 
+
+  def setup(DC, other_caches, size, mon_process):
     self.local_cache = []
 
     self.pending_actions=[]
@@ -199,7 +279,7 @@ class MOSI_PROTO_CACHE(process):
       await(len(self.pending_actions)>0 and current_state == 'READY')
       # queue has some pending request and  state is READY
       # process request
-      print('ready state ------', pending_actions)
+      #print('ready state ------', self.pending_actions)
       processRequest()
 
   def processRequest():
@@ -209,27 +289,34 @@ class MOSI_PROTO_CACHE(process):
     instruction = action[0] if len(action) > 0 else ''
     block_addr = action[1]  if len(action) > 1 else ''
     p = action[2] if len(action) > 2 else ''
-    data = action[3] if len(action) > 3 else ''
+    data = action[3] if len(action) > 3 else 0 
 
 
     # Instruction: LOAD, STORE or INVALIDATE
     # Might need to forward the request to the other caches
     # based on the state of the block address 
     if instruction == 'Invalidate':
+      # Inavlidate the local block copy
       invalidate_cache_copy(block_addr, p)
     elif instruction == 'load':
+      # LOAD the block copy
       load_block_copy(block_addr, p)
     elif instruction == 'store':
+      # store the block copy in cache
       store_block_copy(block_addr, p, data)
     elif instruction == 'Fwd_GetS':
+      # received a fwd_getS request from the Directory Controller
       forward_getS_request(block_addr, p)
     elif instruction == 'Fwd_GetM':
+      # received a fwd_getM request from the Directory Controller
       forward_getM_request(block_addr, p, action[3])
     elif instruction == 'REPLACEMENT':
+      # replace the block copy in the cache
       replace_block_copy(block_addr)
 
 
   def invalidate_cache_copy(addr, p):
+    """ Invalidate the Cache copy and send the Inv_Ack"""
     result = [] 
     for x in local_cache:
       if x[0]==addr:
@@ -237,13 +324,13 @@ class MOSI_PROTO_CACHE(process):
         break
 
     send(('Inv_Ack', addr, p),to=p)
+    send(('inc_msg_cnt', 1), to=mon_process)
 
     index = local_cache.index(result)
     tuple = local_cache.pop(index)
 
     if tuple[1] == 'SHARED':
        local_cache.insert(index,(tuple[0],'INVALID',tuple[2]))
-       current_state='INVALID' 
     elif tuple[1] == 'SMAD':
        local_cache.insert(index,(tuple[0],'IMAD',tuple[2], 0))
        current_state='IMAD'
@@ -252,6 +339,7 @@ class MOSI_PROTO_CACHE(process):
        current_state='IIA'
 
   def load_block_copy(addr, p):
+    """ Load the block copy in cache """
     result = [] 
     for x in local_cache:
       if x[0]==addr:
@@ -260,6 +348,7 @@ class MOSI_PROTO_CACHE(process):
  
     if len(result)>0:
       state = result[1]
+      output('LOAD: Block addr %r found in the cache in %r state'%(addr,state)) 
       if state == "INVALID":
         update_cache(result)
         current_state = 'INVALID'
@@ -267,18 +356,23 @@ class MOSI_PROTO_CACHE(process):
       elif state in ['SHARED','MODIFIED','OWNED']:
         current_state = 'SHARED'
         update_cache(result)
+        send(('cache_hit', ), to=mon_process)
       else:
         print('LOAD: State not supported!')
     else:
        add_to_cache((addr, 'INVALID', 0))
        current_state = 'INVALID'
        transition_I_toS(addr)
+       output('LOAD: Block addr %r added to the cache'%addr)
 
     current_state="READY"
     send('completed', to=p)
+    send(('inc_msg_cnt', 1), to=mon_process)
 
+    send(('ins', 'load', addr, local_cache[0][2], self.id,logical_clock()),to=mon_process)
 
   def store_block_copy(addr, p, data):
+    """ Store block copy in the cache """
     result = [] 
     for x in local_cache:
       if x[0]==addr:
@@ -287,6 +381,7 @@ class MOSI_PROTO_CACHE(process):
  
     if len(result): 
       state = result[1]
+      output('STORE: Block addr %r found in the cache in %r state'%(addr,state))
       if state == "INVALID":
         current_state = "INVALID"
         update_cache(result)
@@ -297,6 +392,7 @@ class MOSI_PROTO_CACHE(process):
         transition_S_toM(addr, data)
       elif state == "MODIFIED":
         update_cache(result)
+        send(('cache_hit', ), to=mon_process)
       elif state == "OWNED":
         current_state = "OWNED"
         update_cache(result)
@@ -304,32 +400,43 @@ class MOSI_PROTO_CACHE(process):
       else:
         print('STORE: State not supported!')
     else:
+       output('STORE: Block addr %r not found in the cache'%addr)
        current_state = "INVALID"
        add_to_cache((addr, 'INVALID', 0))
        transition_I_toM(addr, data)
+       output('STORE: Block addr %r added to the cache'%addr)
 
     current_state="READY"
     send('completed', to=p)
+    send(('inc_msg_cnt', 1), to=mon_process)
  
+    send(('ins', 'store', addr, local_cache[0][2], self.id,logical_clock()),to=mon_process)
+
   def replace_block_copy(tuple):
     if tuple[1]=='SHARED':
       send(('PutS',tuple[0]), to=DC)
+      send(('inc_msg_cnt', 1), to=mon_process)
       current_state='SIA'
-      await(current_state=='INVALID')
+      await(current_state=='INVALID' or current_state=='IIA')
     elif tuple[1] in ['MODIFIED', 'OWNED']:
       if tuple[1]=='MODIFIED':
         send(('PutM',tuple[0],tuple[2]), to=DC)
         current_state='MIA'
       elif tuple[1]=='OWNED':
-        send(('PutE',tuple[0]), to=DC)
+        send(('PutO',tuple[0], tuple[2]), to=DC)
         current_state='OIA'
-      await(current_state=='INVALID')
+        await(current_state=='INVALID')
 
-      local_cache.remove(tuple)
+    local_cache.remove(tuple)
 
-    current_state = 'READY'
 
   def forward_getS_request(addr, p):
+
+    """ for the forwarded getS request received from the Directory Controller
+        Cache copy's state will be changed accordingly and the data is send to
+        the Requestor
+    """
+
     result = [] 
     for x in local_cache:
       if x[0]==addr:
@@ -340,70 +447,91 @@ class MOSI_PROTO_CACHE(process):
     tuple = local_cache.pop(index)
 
     orig_state = tuple[1]
-    state = '' 
 
     if orig_state in ['MODIFIED']:
-      state = 'OWNED'
+      local_cache.insert(index,(tuple[0],'OWNED',tuple[2]))
     elif orig_state in ['MIA']:
-      state = 'OIA'
-      current_state = state
-
-    if state in ['OWNED', 'OIA']: 
-      local_cache.insert(index,(tuple[0], state,tuple[2]))
+      local_cache.insert(index,(tuple[0],'OIA',tuple[2]))
+      current_state = 'OIA'
     else:
-      local_cache.insert(index,tuple); 
+      local_cache.insert(index, tuple)  
 
-    if state != '' or orig_state in ['O', 'OMAC', 'OIA', 'OMA']:
-      send(('data_from_Owner',result[0],result[2]), to=p)
+    send(('data_from_Owner',result[0],result[2]), to=p)
+    send(('inc_msg_cnt', 1), to=mon_process)
 
   def forward_getM_request(addr, p, ack):
+    """ for the forwarded getM request received from the Directory Controller
+        Cache copy's state will be changed accordingly and the data is send to
+        the Requestor
+    """ 
     result = [] 
     for x in local_cache:
       if x[0]==addr:
         result=x
         break
 
-
-    state = ''
     index = local_cache.index(result)
     tuple = local_cache.pop(index)
     orig_state = tuple[1]
-    
 
     if orig_state in ['MODIFIED', 'OWNED']:
-      state = 'INVALID'
-      current_state = 'INVALID'
+      local_cache.insert(index,(tuple[0], 'INVALID',tuple[2], ack))
     elif orig_state in ['MIA', 'OIA']:
-      state = 'IIA'
+      local_cache.insert(index,(tuple[0], 'IIA',tuple[2], ack))
       current_state='IIA'
     elif orig_state in ['OMAC']:
-      state = 'IMAD'
+      local_cache.insert(index,(tuple[0], 'IMAD',tuple[2], ack))
       current_state='IMAD'
-
-    local_cache.insert(index,(tuple[0], state,tuple[2], ack))
+    else:
+      local_cache.insert(index,tuple)
 
     send(('data_from_Owner',result[0],result[2]),to=p)
+    send(('inc_msg_cnt', 1), to=mon_process)
 
   def transition_I_toS(addr):
+    """
+    move the block copy state from I to S
+    Send the GetS request to the directory Controller
+    If state of the requested block in Directory controller is:
+    S: Directory state will remain in S state and local cache copy transitions from I->S 
+    M: Directory block state will change to O and forward the request to the Owner cache. Owner state will change from M->O 
+    O: Directory state will remain in  O state and local cache copy transitions from I->S
+    """
+ 
     current_state='ISD'
     tuple = local_cache.pop(0)
     local_cache.insert(0,(tuple[0],current_state,tuple[2]))
     send(('GetS',addr),to=DC)
+    send(('inc_msg_cnt', 1), to=mon_process)
 
     await(current_state=='SHARED')
+    output('LOAD: Moved the block %r state from I to S state'%addr) 
     
   def transition_I_toM(addr, data):
+    """
+    move the block copy state from I to M 
+    Send the GetM request to the directory Controller
+    If state of the requested block in Directory controller is:
+    I: Directory block state will change to M and local cache copy transitions from I->M 
+    M: Directory state will remain in  M state, forward the request to the Owner cache and Owner move block state from M to I, sends the data to the Requestor 
+    O: Directory block state will change to M, forward the request to the Owner cache and Owner move from O to I and Owner send the data to the Requestor
+    S: Directory block state will change to M, send Invalidate to other sharers and send back the data to the Requestor  
+    """
+    
     current_state='IMAD'
     tuple = local_cache.pop(0)
     local_cache.insert(0,(tuple[0],current_state,tuple[2], 0)) 
     send(('GetM',addr),to=DC)
+    send(('inc_msg_cnt', 1), to=mon_process)
 
     transition_IMAD_toM(addr, data)
     t=local_cache.pop(0)
     local_cache.insert(0,(tuple[0],current_state,data))
+    output('STORE: Moved the block %r state from I to M state'%addr)
     
 
   def transition_IMAD_toM(addr, data):
+    """ take care of transient state IMAD to M """
     await(current_state=='IMA' or current_state=='MODIFIED')
     if current_state=='MODIFIED':
       pass
@@ -411,10 +539,19 @@ class MOSI_PROTO_CACHE(process):
       await(current_state == 'MODIFIED')
 
   def transition_S_toM(addr, data):
+    """
+    move local block copy from state S to M
+    send GetM request to the Directory Controller 
+    Directory Controller's block state:
+    S: Directory block state will change to M, send Invalidate to other sharers and send back the datato the Requestor
+    O: Directory block state will change to M, send Invalidate to other sharers, forward getM request to the Owner and the Owner send data to the Requestor 
+    """
+ 
     current_state='SMAD'
     tuple = local_cache.pop(0)
     local_cache.insert(0,(tuple[0],current_state,tuple[2])) 
     send(('GetM',addr),to=DC)
+    send(('inc_msg_cnt', 1), to=mon_process)
 
     await(current_state=='SMA' or current_state=='MODIFIED' or current_state=='IMAD')
     if current_state == 'MODIFIED':
@@ -429,13 +566,21 @@ class MOSI_PROTO_CACHE(process):
     tuple=local_cache.pop(0)
     local_cache.insert(0,(tuple[0],current_state,data))
 
+    output('STORE: Moved the block %r state from S to M state'%addr)
     current_state = 'READY'
 
   def transition_O_toM(addr, data):
+    """
+    move local block copy from state O to M
+    directory block state: O->M
+    Invalidate other Sharers and send AckCount to the Requestor 
+    """
+
     current_state='OMAC'
     tuple = local_cache.pop(0)
     local_cache.insert(0,(tuple[0],current_state,tuple[2])) 
     send(('GetM',addr),to=DC)
+    send(('inc_msg_cnt', 1), to=mon_process)
 
     await(current_state=='OMA' or current_state=='MODIFIED')
     if current_state == 'MODIFIED':
@@ -447,13 +592,17 @@ class MOSI_PROTO_CACHE(process):
       print('O_to_M: Invalid State!')
 
     tuple=local_cache.pop(0)
-    local_cache.insert(0,(tuple[0],current_state,data,))
+    local_cache.insert(0,(tuple[0],current_state,data,0))
     current_state = 'READY' 
  
   def transition_M_toO():
     pass
 
   def receive(msg=('data_from_DC', ack_cnt, addr, data), from_=s):
+    """
+    Received data from the Directory Controller
+    """
+
     if current_state=='ISD' and addr==local_cache[0][0] and ack_cnt==0:
       current_state = "SHARED"
       tuple = local_cache.pop(0)
@@ -475,24 +624,32 @@ class MOSI_PROTO_CACHE(process):
       print('Data from DC: State not Supported!')
 
   def receive(msg=('data_from_Owner', addr, data), from_=s):
+    """
+    Received data from the Owner
+    """
+
     if current_state=='ISD' and addr==local_cache[0][0]:
       current_state = "SHARED"
       tuple = local_cache.pop(0)
       local_cache.insert(0, (tuple[0], current_state, data, 0))
-    elif ((current_state=='IMAD' or current_state=='SMAD') and addr==local_cache[0][0]):
+    elif ((current_state=='IMAD' or current_state=='SMAD' or current_state=='OMAC') and addr==local_cache[0][0]):
       current_state = "MODIFIED"
       tuple = local_cache.pop(0)
       local_cache.insert(0, (tuple[0], current_state, data, 0))
     else:
-      print('Data from Owner: State not Supported!')
-
+      print('DFO: not supported state ', current_state)
 
   def receive(msg=('Inv_Ack',addr,p), from_=s):
+    """
+    Received Inv_Ack from other caches
+    """
+
     states = ['IMA', 'IMAD', 'OMA', 'OMAC', 'SMAD', 'SMA']
     if (current_state in states) and addr==local_cache[0][0]:
       tuple = local_cache.pop(0)
       ack_cnt = tuple[3]
-      ack_cnt -= 1
+      if ack_cnt!=0:
+        ack_cnt -= 1
       if ack_cnt==0:
         current_state = "MODIFIED"
 
@@ -502,6 +659,10 @@ class MOSI_PROTO_CACHE(process):
   
 
   def receive(msg=('Invalidate', p, addr), from_=s):
+    """
+    Received Invalidate from the Directory controller
+    """
+
     result=[] 
     for x in local_cache:
       if x[0] == addr:
@@ -514,18 +675,28 @@ class MOSI_PROTO_CACHE(process):
       pending_actions.append(('Invalidate', addr, p))
  
   def add_to_cache(tuple):
+    """
+    Add the entry to the local cache, entry is tuple:
+    <addr, state, data>
+    """ 
     if len(local_cache) >= CACHE_SIZE:
       value=local_cache[len(local_cache)-1]
       if value[1] in ['SHARED', 'MODIFIED', 'OWNED']:
         pending_actions.insert(0,('REPLACEMENT',value,None))
-    else:   
-      local_cache.insert(0, tuple)
+       
+    local_cache.insert(0, tuple)
   
   def update_cache(tuple):
+    """
+    Move the entry to the front, following the LRU concept
+    """
     local_cache.remove(tuple)
     local_cache.insert(0, tuple)
       
   def receive(msg=('Fwd_GetS', p, addr), from_=s):
+    """
+    Received Forward getS request from the Directory Controller
+    """
     res=[x for x in local_cache if x[0]==addr]
     if res[0][1] in ['MODIFIED', 'OWNED', 'MIA', 'OMA', 'OMAC', 'OIA']:
       forward_getS_request(addr,p)
@@ -533,6 +704,9 @@ class MOSI_PROTO_CACHE(process):
       pending_actions.append(('Fwd_GetS', addr, p))
 
   def receive(msg=('Fwd_GetM', p, addr, ack), from_=s):
+    """
+    Received Forward getM request from the Directory Controller
+    """
     res=[x for x in local_cache if x[0]==addr]
     if res[0][1] in ['MODIFIED', 'OWNED', 'MIA', 'OMAC', 'OIA']:
       forward_getM_request(addr,p,ack)
@@ -540,12 +714,18 @@ class MOSI_PROTO_CACHE(process):
       pending_actions.append(('Fwd_GetM', addr, p, ack))
 
   def receive(msg=('load',addr, p), from_=s):
+    """
+    Received load request from the processor
+    """
     self.pending_actions.append(('load',addr, s))
-    print('received Load request for block : ', addr, " ", s)
+    output('received Load request for block : %r'%addr)
 
   def receive(msg=('store',addr, p, data), from_=s):
-    self.pending_actions.append(('store',addr, s))
-    print('received Store request for block : ', addr, " ", s)
+    """
+    Received store request from the processor
+    """
+    self.pending_actions.append(('store',addr, s, data))
+    output('received Store request for block : %r'%addr)
 
   def receive(msg=('Put_Ack',addr,p), from_=s):
     res = [ x for x in local_cache if x==addr]
@@ -558,6 +738,9 @@ class MOSI_PROTO_CACHE(process):
       print('Invalid state!')
 
   def receive(msg=('Ack_cnt',ack,addr), from_=s):
+    """
+    Received Ack_Cnt from the Directory Controller 
+    """ 
     res = [ x for x in local_cache if x==addr]
     if current_state == 'OMAC':
       current_state='OMA'
@@ -571,16 +754,18 @@ class MOSI_PROTO_CACHE(process):
 
 # Processor 
 class Processor(process):
-    def setup(trace, protocol):
+    def setup(trace, protocol,mon_process):
       self.keep_waiting = False
       ## self.cache = Cache(protocol, CACHE_SIZE)
 
     def execute(inst):
       if inst[0] == "r":
         send(('load',inst[1] , self.id), to=protocol)
+        send(('inc_msg_cnt', 1), to=mon_process)
 
       elif inst[0] == "w":
         send(('store', inst[1], self.id, inst[2]), to=protocol)
+        send(('inc_msg_cnt', 1), to=mon_process)
 
       else:
         print("Unexpected instruction:", inst);
@@ -608,12 +793,31 @@ def get_traces(trace_dir,nprocs):
     trace.append(insts)
   return trace
 
+
 class Monitor(process):
+  """
+    Monitor Class:
+    Used for correctness checking and performance analysis measurement.
+    Correntness checking : Instructions list will queue the result of all access requests to all caches.
+                           It will give us picture of how values are getting accessed/modified. 
+                           We are able to verify sequential consistency using this.
+    Performance analysis : (i)  Total # of messages used for communication
+                           (ii) Elapsed time taken by the protocol
+                           (iii)CPU time taken by the protocol
+                           (iv) Cache hits
+                           (v) cache miss  
+
+    This part is common to all the 
+    Generic to all protocol implementations. Copied it from following :-
+    Reference: Paul Mathew. https://github.com/karthikbox/cache_coherence/blob/mi_protocol/mi_protocol.da
+  """
   def setup():
     self.instructions = []
     self.total_msgs = 0
     self.cpu_time = 0
     self.elapsed_time = 0
+    self.cache_hits = 0
+    self.cache_misses = 0
    
   def receive(msg= ('ins', type, addr, value, cache_id,lc)):
     instructions.append((type, addr, value, cache_id,lc))
@@ -621,72 +825,79 @@ class Monitor(process):
   def receive(msg= ('inc_msg_cnt', value)):
     total_msgs = total_msgs + value
 
+  def receive(msg= ('cache_hit',)):
+    cache_hits += 1
+
+  def receive(msg= ('cache_miss',)):
+    cache_misses += 1
+
   def receive(msg= ('time_taken', cpu, elapsed)):
     cpu_time = cpu
     elapsed_time = elapsed 
 
   def run():
     await(False)
-    
+  
   def receive(msg= ('done',)):
-    print("===Load/Store global order===")
+    print("============================ Load/Store global order ==============\n")
     for ins in instructions:
       print(ins[3], " : ", ins[0], ins[1], ins[2])
     print()
-    print("===Benchmarks===")
+    print("============================= Benchmarks ===========================\n")
+    print("Cache Hits: ", cache_hits)
+    print("Cache Misses: ", cache_misses)
     print("Total msg count:", total_msgs)
     print("Elapsed time:", elapsed_time)
     print("CPU time:", cpu_time)
+    print("====================================================================\n")
     exit()
-
 
 def main():
     nprocessors = int(sys.argv[1]) if len(sys.argv) > 1 else 2
-    proto_name = sys.argv[2] if len(sys.argv) > 2 else 'MI'
+    proto_name = sys.argv[2] if len(sys.argv) > 2 else 'MOSI'
     trace_dir = sys.argv[3] if len(sys.argv) > 3 else './traces'
 
     config(channel= 'fifo', clock= 'Lamport')
-    
+
     start_cpu_time = time.process_time()
-    start_elapsed_time = time.perf_counter()    
-    
+    start_elapsed_time = time.perf_counter() 
+
     trace = get_traces(trace_dir,nprocessors)
-    #print(trace)
     Proto_cache, Proto_ctrl = get_proto_class(proto_name)
-    
+
     print('-----START-----')
     ## Start monitor process
     monitor_obj = new(Monitor, num=1)
     setup(monitor_obj, ())
-    start(monitor_obj)
-
+    start(monitor_obj)        
     
+
     ## Initialize protocol objs for caches and controller
     mem_ctrl_protocol_obj = new(Proto_ctrl, num=1)
     protocol_objs = new(Proto_cache, num=nprocessors)
-    
+
     ## Setup Protocol for ctrller
-    setup(mem_ctrl_protocol_obj, (protocol_objs,monitor_obj))
+    setup(mem_ctrl_protocol_obj, (protocol_objs, monitor_obj))
     start(mem_ctrl_protocol_obj)
 
     ## Setup Protocols for caches
     for proto_obj in protocol_objs:
-      setup(proto_obj, (mem_ctrl_protocol_obj, protocol_objs - {proto_obj}, CACHE_SIZE,monitor_obj))
+      setup(proto_obj, (mem_ctrl_protocol_obj, protocol_objs - {proto_obj}, CACHE_SIZE, monitor_obj))
       start(proto_obj)
 
     ## Setup Processors
     processors = new(Processor, num= nprocessors)
-    
+
     ## temp lists for iterating
     processors_list = list(processors)
     protocol_objs_list = list(protocol_objs)
-    for i in range(nprocessors): 
-      setup(processors_list[i], (trace[i], protocol_objs_list[i],monitor_obj))
-    
+    for i in range(nprocessors):
+      setup(processors_list[i], (trace[i], protocol_objs_list[i], monitor_obj))
+
     start(processors)
-    
-    ## Exiting logic  
-    for p in processors: 
+
+    ## Exiting logic
+    for p in processors:
       p.join()
 
     da.send(('done',), to= protocol_objs)
@@ -705,4 +916,6 @@ def main():
     da.send(('done',), to= monitor_obj)
     for monitor in monitor_obj:
       monitor.join()
+
     print('-----END-----')
+
