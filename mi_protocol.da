@@ -231,7 +231,10 @@ class MI_PROTO_CACHE(process):
         found = True
         break
     if not found:
+      send(('cache_miss'), to=monitor_obj)
       get_addr(addr)
+    else:
+      send(('cache_hit'), to=monitor_obj)
     value = self.reorder(addr, '')
     not_found_q.clear()
     #output("Sending Ack load", len(not_found_q))
@@ -241,7 +244,7 @@ class MI_PROTO_CACHE(process):
   
   def receive(msg=('store', addr, value), from_=s):
     """
-    Received store request from processo, store value into cache and send back acknowledgement
+    Received store request from processor, store value into cache and send back acknowledgement
     """
     #output("Received STORE request for addr %s" % addr);
     found = False
@@ -251,7 +254,10 @@ class MI_PROTO_CACHE(process):
         found = True
         break
     if not found:
+      send(('cache_miss'), to=monitor_obj)
       get_addr(addr)
+    else:
+      send(('cache_hit'), to=monitor_obj)
     #value = self.reorder(addr, va)
     self.reorder(addr, value)
     not_found_q.clear()
@@ -380,7 +386,15 @@ class Monitor(process):
     self.total_msgs = 0
     self.cpu_time = 0
     self.elapsed_time = 0
+    self.total_cache_hit = 0
+    self.total_cache_miss = 0
+
+  def receive(msg= ('cache_hit')):
+    total_cache_hit += 1
    
+  def receive(msg= ('cache_miss')):
+    total_cache_miss += 1
+
   def receive(msg= ('ins', type, addr, value, cache_id)):
     """
     Collects all load/store instructions executed by the cache controller
@@ -405,6 +419,7 @@ class Monitor(process):
 
   def receive(msg= ('done',)):
     """
+
     Simulation has ended, dislay the results of the simulation
     """
     print("===Load/Store global order===")
@@ -415,6 +430,8 @@ class Monitor(process):
     print("Total msg count:", total_msgs)
     print("Elapsed time:", elapsed_time)
     print("CPU time:", cpu_time)
+    print("Cache hit:", total_cache_hit)
+    print("Cache miss:", total_cache_miss)
     exit()
 
 def get_traces(trace_dir,nprocs):
