@@ -68,11 +68,9 @@ class MOSI_PROTO_CTRL(process):
 
     if(instruction == 'GetS'):
       # get the block address for read operation
-      send(('cache_miss', ), to=mon_process)
       getS(cache, block_addr)
     elif(instruction == 'GetM'):
       # get the block address for write operation
-      send(('cache_miss', ), to=mon_process)
       getM(cache, block_addr)
     elif(instruction=='PutS'):
       putS(block_addr, cache)
@@ -105,22 +103,26 @@ class MOSI_PROTO_CTRL(process):
       directory_ctrlr[block_addr][2].append(cache)
       send(("data_from_DC", 0, block_addr, tuple[3]), to=cache)
       send(('inc_msg_cnt', 1), to=mon_process)
+      send(('cache_miss', ), to=mon_process)
     elif(state == "SHARED"):
       # block copy with the Directory Controller
       directory_ctrlr[block_addr][2].append(cache)
       send(("data_from_DC", 0, block_addr, tuple[3]), to=cache)
       send(('inc_msg_cnt', 1), to=mon_process)
+      send(('cache_hit', ), to=mon_process)
     elif(state == "MODIFIED"):
       # block copy needs to be fetched from the Owner
       directory_ctrlr[block_addr][0] = "OWNED" 
       directory_ctrlr[block_addr][2].append(cache)
       send(("Fwd_GetS", cache, block_addr), to=directory_ctrlr[block_addr][1])
       send(('inc_msg_cnt', 1), to=mon_process)
+      send(('cache_hit', ), to=mon_process)
     elif(state == "OWNED"):
       # block copy needs to be fetched from the Owner
       directory_ctrlr[block_addr][2].append(cache)
       send(("Fwd_GetS", cache, block_addr), to=directory_ctrlr[block_addr][1])
       send(('inc_msg_cnt', 1), to=mon_process)
+      send(('cache_hit', ), to=mon_process)
     else:
       print('DC: State not supported!')
 
@@ -148,6 +150,7 @@ class MOSI_PROTO_CTRL(process):
       send(('inc_msg_cnt', 1), to=mon_process)
       directory_ctrlr[block_addr][1] = cache
       directory_ctrlr[block_addr][2] = [] 
+      send(('cache_miss', ), to=mon_process)
 	
     elif(state == "SHARED"):
       # block copy with the Directory Controller
@@ -162,7 +165,8 @@ class MOSI_PROTO_CTRL(process):
       send(('Invalidate', cache, block_addr),to={x for x in directory_ctrlr[block_addr][2]})
       send(('inc_msg_cnt', 2), to=mon_process)
       directory_ctrlr[block_addr][2] = []
- 
+      send(('cache_hit', ), to=mon_process)
+
     elif(state == "MODIFIED"):
       # Latest block copy with the another cache
       # forwards the request to the Owner
@@ -186,6 +190,7 @@ class MOSI_PROTO_CTRL(process):
         send(('inc_msg_cnt', 3), to=mon_process)
         directory_ctrlr[block_addr][1] = cache 
       directory_ctrlr[block_addr][2] = []
+      send(('cache_hit', ), to=mon_process)
     else:
       print("DC_getM: State not supported!")
 
