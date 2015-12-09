@@ -18,7 +18,7 @@ Note: The basic structural view for the protocol is same for our group and hence
 import sys
 import time
 import os
-addr = 0x00000011
+addr = 'addr'
 p='process'
 s='process'
 d='process'
@@ -27,6 +27,11 @@ ack='ackowledgement'
 data='data'
 send='send'
 monitor_obj='monitor'
+value='value_received'
+cache_id='cache_id'
+lc='logical_clock'
+cpu='cpu_time'
+elapsed='elapsed_time'
 
 #from termcolor import colored
 
@@ -35,6 +40,10 @@ ENOTSUPP = 2
 CACHE_SIZE = 512
 
 def get_proto_class(name):
+  """
+  Helper function to create class objects. Common to all protocol implementations.
+  Reference: Parag Gupta. https://github.com/karthikbox/cache_coherence/tree/p_template/main.da
+  """
   if name == "MOESI":
     return (eval("MOESI_Cache"), eval("MOESI_Directory"))
   else:
@@ -529,7 +538,7 @@ class MOESI_Cache():
     memory.insert(0,t)
 
 
-  def receive(msg=('exclusive_data_from_dir',addr,val_rvd), from_=s):
+  def receive_exclusive_data_from_dir(msg=('exclusive_data_from_dir',addr,val_rvd), from_=s):
     """ 
     Exclusive data msg from the Directory to cache when none of the caches contain requesting data entry, hence I->E is done. 
     """
@@ -543,7 +552,7 @@ class MOESI_Cache():
       assert False, "received out-of-state message. Should not happen. exclusive_data_from_dir.current_state=%r, addr_rcvd=%r, mem0_addr=%r,val_rcvd=%r" % (current_state,addr,memory[0][0],val_rvd)
 
 
-  def receive(msg=('ackcount_from_dir',ack,addr), from_=s):
+  def receive_ackcount_from_dir(msg=('ackcount_from_dir',ack,addr), from_=s):
     """
     The Directory will send the Count of the acks that requesting cache should receive when O->M transition happens and 
     all sharers need to Invalidate their data entries
@@ -559,7 +568,7 @@ class MOESI_Cache():
     else:
       assert False,'not a valid state for ackcount_from_dir : %r and mem : %r'%(current_state,res[0])
 
-  def receive(msg=('data_from_dir',ack,addr,val_rvd), from_=s):
+  def receive_data_from_dir(msg=('data_from_dir',ack,addr,val_rvd), from_=s):
     """
     Data from Directory Controller receive handler to receive data and ackcount in some state transitions.
     """
@@ -595,7 +604,7 @@ class MOESI_Cache():
     else:
       assert False, "received out-of-state message. Should not happen. data_from_dir. CURRENT_STATE=%r,ack_count=%r, addr rcvd=%r" % (current_state,ack,addr)
 
-  def receive(msg=('data_from_owner',addr,val_rvd), from_=s):
+  def receive_data_from_owner(msg=('data_from_owner',addr,val_rvd), from_=s):
     """
     Receive handler for data message from the other caches which are currently the having the data entry in E or M state.
     This message is received in response I->S and S->M state transitions.
@@ -621,7 +630,7 @@ class MOESI_Cache():
     else:
       assert False, "received out-of-state message. Should not happen. data_from_owner. current_state %r, addr %r" %(current_state,addr)
 
-  def receive(msg=('Put_Ack',addr,p), from_=s):
+  def receive_PutAck(msg=('Put_Ack',addr,p), from_=s):
     """
     Write to memory message receive handler.
     This message is received when data is evicted from cache to be written to memory in case of evictions while cache entry is in any state.
@@ -639,7 +648,7 @@ class MOESI_Cache():
       assert False,'invalid state for handling put-ack.'
 
   
-  def receive(msg=('Inv_Ack',addr,p), from_=s):
+  def receive_InvAck(msg=('Inv_Ack',addr,p), from_=s):
     """
     The sharer of a cache entry will send invalidate ack to requesting cache for it to make successful I/S/O->M transition
     """
@@ -692,7 +701,7 @@ class MOESI_Cache():
       assert False,'received out-of-state message. Should not happen. Inv-ACK. addr_rcvd=%r, head_memory=%r, state=%r'%(addr,memory[0],memory[0][1])
 
 
-  def receive(msg=('Inv',addr,p), from_=s):
+  def receive_Inv(msg=('Inv',addr,p), from_=s):
     """ Invalidating request message from Directory Controller """
     res=[x for x in memory if x[0]==addr]
     assert len(res)>0,'addr_rcvd=%r not in memory'%addr
@@ -706,7 +715,7 @@ class MOESI_Cache():
       pending_actions.append(('inv',addr,p))
     
 
-  def receive(msg=('Fwd_GetS',addr,p), from_=s):
+  def receive_FwdGetS(msg=('Fwd_GetS',addr,p), from_=s):
     """ Receive handler of fwd-gets messages from the directory controller """
     res=[x for x in memory if x[0]==addr]
     if res[0][1] in ['EXCLUSIVE','MODIFIED','EXCLUSIVE_INVALID_ACK','MODIFIED_INVALID_ACK','OWNER','OWNER_MODIFIED_ACK_COUNT','OWNER_MODIFIED_ACK']:
@@ -714,7 +723,7 @@ class MOESI_Cache():
     else:
       pending_actions.append(('fwd_gets',addr,p))
 
-  def receive(msg=('Fwd_GetM',addr,p), from_=s):
+  def receive_FwdGetM(msg=('Fwd_GetM',addr,p), from_=s):
     """ Receive handler of fwd-getm messages from the directory controller """
     res=[x for x in memory if x[0]==addr]
     if res[0][1] in ['EXCLUSIVE','MODIFIED','EXCLUSIVE_INVALID_ACK','MODIFIED_INVALID_ACK','OWNER_MODIFIED_ACK_COUNT']:
@@ -722,7 +731,7 @@ class MOESI_Cache():
     else:
       pending_actions.append(('fwd_getm',addr,p))
 
-  def receive(msg=('Fwd_GetM',addr,p,ack), from_=s):
+  def receive_FwdGetM_with_ack(msg=('Fwd_GetM',addr,p,ack), from_=s):
     """ 
     Receive handler of fwd-getm messages with acknowledgement from the directory controller 
     This receive handler is created to handler a special case in MOESI protocol when Owner cache needs to forward the ack
@@ -732,12 +741,12 @@ class MOESI_Cache():
     if res[0][1] in ['OWNER','OWNER_MODIFIED_ACK_COUNT']:
       perform_fwd_getm(addr,p,ack)
 
-  def receive(msg=('load',addr, p), from_=s):
+  def receive_load(msg=('load',addr, p), from_=s):
     """ Receive handler for the load requests from the Processor class. """      
     self.pending_actions.append(('load',addr, s))
     output("Received LOAD request for addr %s" % addr)
  
-  def receive(msg=('store',addr, p, data), from_=s):
+  def receive_store(msg=('store',addr, p, data), from_=s):
     """ Receive handler for the store requests from the Processor class. """      
     self.pending_actions.append(('store',addr, s, data))
     output("Received STORE request for addr %s" % addr);
@@ -904,7 +913,7 @@ class MOESI_Directory():
       memory[addr][2].append(to_process)
     else:
       assert False, 'invalid memory state. getS'
-  send(('inc_msg_cnt', 1), to=monitor_obj)
+    send(('inc_msg_cnt', 1), to=monitor_obj)
 
 
   def perform_getM(addr,to_process):
@@ -988,33 +997,33 @@ class MOESI_Directory():
       assert False, 'invalid memory state for addr_rcvd=%r,state in memory=%r'%(addr,memory[addr][0])
 
 
-  def receive(msg=('GetS',addr), from_=p):
+  def receive_GetS(msg=('GetS',addr), from_=p):
     """ Read Request from caches """
     pending_actions.append(('GetS',addr,p))
 
-  def receive(msg= ('GetM',addr), from_= p):
+  def receive_GetM(msg= ('GetM',addr), from_= p):
     """ Write Request from caches """
     pending_actions.append(('GetM',addr,p))
 
-  def receive(msg= ('PutS',addr), from_= p):
+  def receive_PutS(msg= ('PutS',addr), from_= p):
     """ Write-back Request from caches when cache needs to evict this data entry (no write to memory) which can make S->S/I transition.
     Put it in pending queue.
     """
     pending_actions.append(('PutS',addr,p))
 
-  def receive(msg= ('PutM',addr,data), from_= p):
+  def receive_PutM(msg= ('PutM',addr,data), from_= p):
     """ Write-back Request with data from caches when cache needs to evict this data entry (no write to memory). Will transition from M->O state
     Put it in pending queue.
     """
     pending_actions.append(('PutM',addr,p,data))
 
-  def receive(msg= ('PutE',addr), from_= p):
+  def receive_PutE(msg= ('PutE',addr), from_= p):
     """ Write-back Request from caches when cache needs to evict this data entry (no write to memory)
     Put it in pending queue
     """
     pending_actions.append(('PutE',addr,p))
 
-  def receive(msg= ('PutO',addr,data), from_= p):
+  def receive_PutO(msg= ('PutO',addr,data), from_= p):
     """ Write-back Request with data from caches when cache needs to evict this data entry (write to memory) which can make S->S/I transition.
     Put it in pending queue
     """
@@ -1061,12 +1070,13 @@ class Processor():
 
 def get_traces(trace_dir, nprocs):
   """
-  Helper function to read trace files from the trace directory
+  Helper function to read trace files from the trace directory. Common to all the protocol implementations.
+  Implemented together with Karthik Reddy.
   """
   trace=[]
   for i in range(nprocs):
-   # trace_filename='p'+str(i)+'.trace'
-    #f=open(os.path.join(trace_dir,trace_filename))
+    trace_filename='p'+str(i)+'.trace'
+    f=open(os.path.join(trace_dir,trace_filename))
     insts=[]
     for line in f:
       insts.append(line.split())
@@ -1084,8 +1094,8 @@ class Monitor():
                            (ii) Elapsed time taken by the protocol
                            (iii)CPU time taken by the protocol
 
-    This part is common to all the 
-    Generic to all protocol implementations. Copied it from following reference with some changes to make colored output :-
+    This part is common to all the protocol implementations. 
+    Copied it from following reference with some changes to make colored output :-
     Reference: Paul Mathew. https://github.com/karthikbox/cache_coherence/blob/mi_protocol/mi_protocol.da
   """
   def setup():
@@ -1094,17 +1104,17 @@ class Monitor():
     self.cpu_time = 0
     self.elapsed_time = 0
    
-  def receive(msg= ('ins', type, addr, value, cache_id,lc)):
+  def receive_ins(msg= ('ins', type, addr, value, cache_id,lc)):
     instructions.append((type, addr, value, cache_id,lc))
 
-  def receive(msg= ('inc_msg_cnt', value)):
+  def receive_inc_msg_cnt(msg= ('inc_msg_cnt', value)):
     """
     Receive handler for total message count.
     Used to calculate total number of messages used in the protocol for cache coherence.
     """
     total_msgs = total_msgs + value
 
-  def receive(msg= ('time_taken', cpu, elapsed)):
+  def receive_time_taken(msg= ('time_taken', cpu, elapsed)):
     """
     Receive handler to measure CPU and ELAPSED time used by the protocol
     for a given number of Processors and given traces

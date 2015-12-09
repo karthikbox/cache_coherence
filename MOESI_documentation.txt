@@ -1,0 +1,341 @@
+Help on module final_pydoc:
+
+NAME
+    final_pydoc
+
+FILE
+    /Users/amitkhandelwal/Desktop/async/Project/GitProject/final_pydoc.py
+
+DESCRIPTION
+    MOESI cache coherence protocol implementation in DistAlgo
+    based on the transition diagram as explained in 8th Chapter of 
+    Sorin, Daniel J., Mark D. Hill, and David A. Wood. "A primer on memory consistency and 
+    cache coherence." Synthesis Lectures on Computer Architecture 6.3 (2011): 1-212.
+    To implement the protocol in DistAlgo, I used Directory Controller based implementation.
+    
+    Note: The basic structural view for the protocol is same for our group and hence certain classes/methods
+          which are common to all protocols is part of the intial setup. The other members of the group are
+          Parag Gupta, Karthik Reddy, Garima Gehlot and Paul Mathew.
+          Particularly for MOESI protocol, I worked with Karthik Reddy for MESI protocol implementation
+          as MOESI is based on MESI protocol with an additional inclusion of 'Owner' state.
+        
+          Code is referenced in comments where it has been copied.
+
+CLASSES
+    MOESI_Cache
+    MOESI_Directory
+    Monitor
+    Processor
+    
+    class MOESI_Cache
+     |  Each instance of this class represents Cache Controller of CACHE_SIZE corresponding to each Processor's local-cache.
+     |  It contains the main logic for handling 5 states of the protocol and is responsible for the state 
+     |  transitions for the cache data entries.
+     |  The implementation is based on the state transitions as explained in the following mentioned book (Chapter 8).
+     |  Reference : Sorin, Daniel J., Mark D. Hill, and David A. Wood. "A primer on memory consistency and 
+     |  cache coherence." Synthesis Lectures on Computer Architecture 6.3 (2011): 1-212.
+     |  Book doesn't contain the state diagram/machine for MOESI protocol, but understanding the MESI and MOSI protocol 
+     |  clearly helped me to create a state machine for MOESI protocol together with some brain-storming sessions with 
+     |  Karthik Reddy.
+     |  
+     |  Methods defined here:
+     |  
+     |  add_to_memory(t)
+     |      add tuple t to the head of cache memory list data structure. 
+     |      format of tuple t = (address,state,value)
+     |  
+     |  move_E_to_M(addr, data)
+     |      Simple transition to M state as both state guarantees only copy in the system
+     |  
+     |  move_IMAD_to_M(addr, data)
+     |      Transient state handling which can occur in I->M and O->M transitions.
+     |  
+     |  move_I_to_M(addr, data)
+     |      Processing of the write request.
+     |      If the state of the data entry in Directory is :-
+     |        a) I : Directory transition from I->M and and cache transition from I->M using the "DatafromDirAck0" msg from Directory class.
+     |        b) M : Directory transition from M/E->M with msg forwarding to Owner Cache of data entry, Owner state from M/E -> I and 
+     |               it will reply to Dir and current Cache with "DatafromDirAck0" msg.
+     |        c) S : Directory transition from S->M with Inv broadcast to all the caches having the data entry. Caches will also 
+     |               make transition from S->I and sends Inv-Ack to current Cache with "DatafromOwner" msg.
+     |        d) O : Directory transition from O->M with Inv broadcast to all the caches having the data entry with S state and 
+     |               fwd-GetM message to the previous owner of the data entry. Sharer caches will also  make transition from S->I and
+     |               sends Inv-Ack and Owner cache will send DatafromDirAck0 message to requesting Cache.
+     |  
+     |  move_I_to_SorE(addr)
+     |      We have some cases when transitioning from state 'I' based on the state of data in directory class.
+     |      If State of same data in Directory is :-
+     |        a) S : Directory state will remain in S state and I->S transition will occur in Cache.
+     |        b) M : Directory will forward the load msg to Owner Cache of data entry, Owner state from M/E -> S and 
+     |               it will reply to Dir and current Cache with "DatafromOwner" msg.
+     |        c) O : Directory will forward the load msg to Owner Cache of data entry, Owner state from M/O -> O and 
+     |               it will reply to Dir and current Cache with "DatafromOwner" msg.      
+     |        d) I : Directory transition from I->E and and cache transition from I->E using the "ExclDatafromDir" msg from Directory Controller.
+     |  
+     |  move_O_to_M(addr, data)
+     |      Cache entry will be in O state when Directory entry is in O state. 
+     |      Transition to M state will cause Directory to send Inv request to all sharer caches.
+     |      Sharer caches will make S->I transition and send Inv-Ack to requesting cache. Directory will also send AckCount msg to requesting cache 
+     |      which will help the requesting cache to wait till AckCount.
+     |  
+     |  move_S_to_M(addr, data)
+     |      Two Cases :-
+     |        a) Directory transition from S->M with Inv broadcast to all the caches having the data entry. Caches will also 
+     |           make transition from S->I and sends Inv-Ack to current Cache with "DatafromOwner" msg.
+     |        b) Directory transition from O->M with Inv broadcast to all the caches having the data entry with S state and 
+     |           fwd-GetM message to the previous owner of the data entry. Sharer caches will also  make transition from S->I and
+     |           sends Inv-Ack and Owner cache will send DatafromDirAck0 message to requesting Cache.
+     |  
+     |  perform_fwd_getm(addr, to_process, ack)
+     |      Fwd_GetM message handler function
+     |  
+     |  perform_fwd_gets(addr, to_process)
+     |      Fwd_GetS message handler function
+     |  
+     |  perform_invalidation(addr, to_process)
+     |      Invalidate memory, send Inv_Ack to the caches.
+     |  
+     |  perform_load(addr, to_process)
+     |      Read request handler function for address 'addr'.
+     |      If the cache entry is in Shared, Exclusive or Owner state, then just update the LRU and return the value present.
+     |      If the cache entry is in Invalid, request the Directory Controller with GetS message.
+     |      Depends on the E or S state in Dir Ctrl, entry will be converted to E or S state.
+     |  
+     |  perform_replacement(t)
+     |      Cache Eviction requests handler function.
+     |  
+     |  perform_store(addr, to_process, data)
+     |      Write request handler for address 'addr' with value 'data'
+     |      If the cache entry is in M state, just update the corresponding value and return.
+     |      In all other states, request Dir Ctrl with GetM message. 
+     |      Depending upon the cache entry states in  Directory Controller, following thing happens :-
+     |      If in O state, invalidate all sharers and go to M state, return.
+     |      If in E state, goto M.
+     |      If in S state, invalidate all sharers and Owner, write data to Memory from Owner, goto M state.
+     |      If in I state, request data from memory.
+     |      Having M state guarantees this as the only copy in the system.
+     |  
+     |  processRequest()
+     |      Handler function to take each pending request in the pending_actions queue and process them.
+     |  
+     |  receive(msg=('done',))
+     |      Receive handler to terminate this cache controller process whenever this message is received
+     |  
+     |  receive_FwdGetM(msg=('Fwd_GetM', 'addr', 'process'), from_='process')
+     |      Receive handler of fwd-getm messages from the directory controller
+     |  
+     |  receive_FwdGetM_with_ack(msg=('Fwd_GetM', 'addr', 'process', 'ackowledgement'), from_='process')
+     |      Receive handler of fwd-getm messages with acknowledgement from the directory controller 
+     |      This receive handler is created to handler a special case in MOESI protocol when Owner cache needs to forward the ack
+     |      received from the directory controller to the requesting cache.
+     |  
+     |  receive_FwdGetS(msg=('Fwd_GetS', 'addr', 'process'), from_='process')
+     |      Receive handler of fwd-gets messages from the directory controller
+     |  
+     |  receive_Inv(msg=('Inv', 'addr', 'process'), from_='process')
+     |      Invalidating request message from Directory Controller
+     |  
+     |  receive_InvAck(msg=('Inv_Ack', 'addr', 'process'), from_='process')
+     |      The sharer of a cache entry will send invalidate ack to requesting cache for it to make successful I/S/O->M transition
+     |  
+     |  receive_PutAck(msg=('Put_Ack', 'addr', 'process'), from_='process')
+     |      Write to memory message receive handler.
+     |      This message is received when data is evicted from cache to be written to memory in case of evictions while cache entry is in any state.
+     |  
+     |  receive_ackcount_from_dir(msg=('ackcount_from_dir', 'ackowledgement', 'addr'), from_='process')
+     |      The Directory will send the Count of the acks that requesting cache should receive when O->M transition happens and 
+     |      all sharers need to Invalidate their data entries
+     |  
+     |  receive_data_from_dir(msg=('data_from_dir', 'ackowledgement', 'addr', 'value_received'), from_='process')
+     |      Data from Directory Controller receive handler to receive data and ackcount in some state transitions.
+     |  
+     |  receive_data_from_owner(msg=('data_from_owner', 'addr', 'value_received'), from_='process')
+     |      Receive handler for data message from the other caches which are currently the having the data entry in E or M state.
+     |      This message is received in response I->S and S->M state transitions.
+     |  
+     |  receive_exclusive_data_from_dir(msg=('exclusive_data_from_dir', 'addr', 'value_received'), from_='process')
+     |      Exclusive data msg from the Directory to cache when none of the caches contain requesting data entry, hence I->E is done.
+     |  
+     |  receive_load(msg=('load', 'addr', 'process'), from_='process')
+     |      Receive handler for the load requests from the Processor class.
+     |  
+     |  receive_store(msg=('store', 'addr', 'process', 'data'), from_='process')
+     |      Receive handler for the store requests from the Processor class.
+     |  
+     |  run()
+     |  
+     |  setup(dir_ctrlr, other_caches, size, monitor_obj)
+     |  
+     |  update_lru_position_of(t)
+     |      LRU cache algorithm handling.
+     |      Move tuple t to the head of the memory list.
+    
+    class MOESI_Directory
+     |  MOESI Directory Controller class.
+     |  This class simulates the centralized directory between caches and is responsible for managing data in the memory.
+     |  This is a single process which handles all access requests from all the processor caches.
+     |  It keeps track of all data entries and their states corresponding to memory.
+     |  Reference : 
+     |  Sorin, Daniel J., Mark D. Hill, and David A. Wood. "A primer on memory consistency and 
+     |  cache coherence." Synthesis Lectures on Computer Architecture 6.3 (2011): 1-212.
+     |  Together implemented with Karthik Reddy. So design and some APIs are same with him (with all the necessary changes required for MOESI protocol):-
+     |  https://github.com/karthikbox/cache_coherence/blob/mesi_implementation/main.da
+     |  
+     |  Methods defined here:
+     |  
+     |  perform_getM(addr, to_process)
+     |      getM message handler function 
+     |      Following cases are there depending upon cache entry state in Directory Controller :-
+     |      I : Data is written to memory (100ms delay is added to simulate this behaviour)
+     |          And data_from_dir message is returned back to requesting cache, I->M state changed.
+     |      S : Data is returned to requesting cache using data_from_dir message and length of sharers as ack.
+     |          Inv message is sent to all sharers, state change S->M.
+     |      E : fwd-getm message is sent to exclusive owner and state is changed to M.
+     |      M : fwd-getm message is sent to owner cache and owner is changed to requesting cache.
+     |      O : fwd-gets message is sent to owner cache with ack count, inv messages to all sharers
+     |          and state change to M.
+     |  
+     |  perform_getS(addr, to_process)
+     |      getS message handler function 
+     |      Following cases are there depending upon cache entry state in Directory Controller :-
+     |      I : Data is read from memory (100ms delay is added to simulate this behaviour)
+     |          And returned back to requesting cache with exclusive_data_from_dir message, I->E state changed.
+     |      S : Data is returned to requesting cache using data_from_dir message.
+     |      E : fwd-gets message is sent to exclusive owner and state is changed to shared.
+     |      M : fwd-gets message is sent to owner cache and state is changed to owner.
+     |      O : fwd-gets message is sent to owner cache.
+     |  
+     |  perform_putE(addr, to_process)
+     |      PutE message handler function
+     |  
+     |  perform_putM(addr, to_process, data)
+     |      PutM message handler function
+     |  
+     |  perform_putO(addr, to_process, data)
+     |      PutO message handler function
+     |  
+     |  perform_putS(addr, to_process)
+     |      PutS message handler function
+     |  
+     |  processRequest()
+     |      Handler function to take each pending request in the pending_actions queue and process them.
+     |  
+     |  receive(msg=('done',))
+     |  
+     |  receive_GetM(msg=('GetM', 'addr'), from_='process')
+     |      Write Request from caches
+     |  
+     |  receive_GetS(msg=('GetS', 'addr'), from_='process')
+     |      Read Request from caches
+     |  
+     |  receive_PutE(msg=('PutE', 'addr'), from_='process')
+     |      Write-back Request from caches when cache needs to evict this data entry (no write to memory)
+     |      Put it in pending queue
+     |  
+     |  receive_PutM(msg=('PutM', 'addr', 'data'), from_='process')
+     |      Write-back Request with data from caches when cache needs to evict this data entry (no write to memory). Will transition from M->O state
+     |      Put it in pending queue.
+     |  
+     |  receive_PutO(msg=('PutO', 'addr', 'data'), from_='process')
+     |      Write-back Request with data from caches when cache needs to evict this data entry (write to memory) which can make S->S/I transition.
+     |      Put it in pending queue
+     |  
+     |  receive_PutS(msg=('PutS', 'addr'), from_='process')
+     |      Write-back Request from caches when cache needs to evict this data entry (no write to memory) which can make S->S/I transition.
+     |      Put it in pending queue.
+     |  
+     |  run()
+     |  
+     |  setup(cache_protocol_objs, monitor_obj)
+    
+    class Monitor
+     |  Monitor Class:
+     |  Used for correctness checking and performance analysis measurement.
+     |  Correntness checking : Instructions list will queue the result of all access requests to all caches.
+     |                         It will give us picture of how values are getting accessed/modified. 
+     |                         We are able to verify sequential consistency using this.
+     |  Performance analysis : (i)  Total # of messages used for communication
+     |                         (ii) Elapsed time taken by the protocol
+     |                         (iii)CPU time taken by the protocol
+     |  
+     |  This part is common to all the protocol implementations. 
+     |  Copied it from following reference with some changes to make colored output :-
+     |  Reference: Paul Mathew. https://github.com/karthikbox/cache_coherence/blob/mi_protocol/mi_protocol.da
+     |  
+     |  Methods defined here:
+     |  
+     |  receive(msg=('done',))
+     |      When all the Processor class are done with processing load/store request, 
+     |      this handler is used to print all the correctness checking invariants and proformance benchmarking numbers.
+     |  
+     |  receive_inc_msg_cnt(msg=('inc_msg_cnt', 'value_received'))
+     |      Receive handler for total message count.
+     |      Used to calculate total number of messages used in the protocol for cache coherence.
+     |  
+     |  receive_ins(msg=('ins', <type 'type'>, 'addr', 'value_received', 'cache_id', 'logical_clock'))
+     |  
+     |  receive_time_taken(msg=('time_taken', 'cpu_time', 'elapsed_time'))
+     |      Receive handler to measure CPU and ELAPSED time used by the protocol
+     |      for a given number of Processors and given traces
+     |  
+     |  run()
+     |  
+     |  setup()
+    
+    class Processor
+     |  Processor Class:
+     |  This class simulates the read/write requests of each processor.
+     |  Implementation wise, it makes read/write requests to cache controller one at a time.
+     |  Since this is a part of common platform on which the team will do the evaluations, copied it from following :-
+     |  Reference: Parag Gupta. https://github.com/karthikbox/cache_coherence/tree/p_template/main.da
+     |  
+     |  Methods defined here:
+     |  
+     |  execute(inst)
+     |      Each load/store requests are made to cache controller one at a time using this function.
+     |  
+     |  receive(msg='completed')
+     |  
+     |  run()
+     |  
+     |  setup(trace, protocol, monitor_obj)
+
+FUNCTIONS
+    get_proto_class(name)
+        Helper function to create class objects. Common to all protocol implementations.
+        Reference: Parag Gupta. https://github.com/karthikbox/cache_coherence/tree/p_template/main.da
+    
+    get_traces(trace_dir, nprocs)
+        Helper function to read trace files from the trace directory. Common to all the protocol implementations.
+        Implemented together with Karthik Reddy.
+    
+    main()
+        Main driver function to simulate the running behaviour of cache coherence protocol with 
+        given number of processors, protocol name and trace file path.
+        Command should be passed in the following way :
+        dar main.da <num_processors> <protocol_name> <tracefile_path>
+        where n - # of processors ( local-caches)
+              Protocol - Protocol Name (MI/MSI/MESI/MOSI/MOESI)
+              Path - Path of the trace file to run with
+        Since this is a part of common platform on which the team will do the evaluations, copied it from following :-
+        Reference: Parag Gupta. https://github.com/karthikbox/cache_coherence/tree/p_template/main.da
+
+DATA
+    CACHE_SIZE = 512
+    ENOTSUPP = 2
+    ack = 'ackowledgement'
+    addr = 'addr'
+    cache_id = 'cache_id'
+    cpu = 'cpu_time'
+    d = 'process'
+    data = 'data'
+    elapsed = 'elapsed_time'
+    lc = 'logical_clock'
+    monitor_obj = 'monitor'
+    p = 'process'
+    s = 'process'
+    send = 'send'
+    val_rvd = 'value_received'
+    value = 'value_received'
+
+
