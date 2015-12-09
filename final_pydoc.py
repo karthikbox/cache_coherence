@@ -1149,9 +1149,9 @@ def main():
   given number of processors, protocol name and trace file path.
   Command should be passed in the following way :
   dar main.da <num_processors> <protocol_name> <tracefile_path>
-  where n - # of processors ( local-caches)
-        Protocol - Protocol Name (MI/MSI/MESI/MOSI/MOESI)
-        Path - Path of the trace file to run with
+  where num_processors - # of processors ( local-caches)
+        protocol_name - Protocol Name (MI/MSI/MESI/MOSI/MOESI)
+        tracefile_path - Path of the trace file to run with
   Since this is a part of common platform on which the team will do the evaluations, copied it from following :-
   Reference: Parag Gupta. https://github.com/karthikbox/cache_coherence/tree/p_template/main.da
     """

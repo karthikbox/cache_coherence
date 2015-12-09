@@ -25,6 +25,10 @@ ENOTSUPP = 2
 CACHE_SIZE = 512
 
 def get_proto_class(name):
+  """
+    Helper function to create class objects. Common to all protocol implementations.
+    Reference: Parag Gupta. https://github.com/karthikbox/cache_coherence/tree/p_template/main.da
+  """
   if name == "MOESI":
     return (eval("MOESI_Cache"), eval("MOESI_Directory"))
   else:
@@ -1051,7 +1055,8 @@ class Processor(process):
 
 def get_traces(trace_dir, nprocs):
   """
-  Helper function to read trace files from the trace directory
+  Helper function to read trace files from the trace directory. Common to all the protocol implementations.
+  Implemented together with Karthik Reddy.
   """
   trace=[]
   for i in range(nprocs):
@@ -1129,9 +1134,9 @@ def main():
   given number of processors, protocol name and trace file path.
   Command should be passed in the following way :
   dar main.da <num_processors> <protocol_name> <tracefile_path>
-  where n - # of processors ( local-caches)
-        Protocol - Protocol Name (MI/MSI/MESI/MOSI/MOESI)
-        Path - Path of the trace file to run with
+  where num_processors - # of processors ( local-caches)
+        protocol_name - Protocol Name (MI/MSI/MESI/MOSI/MOESI)
+        tracefile_path - Path of the trace file to run with
   Since this is a part of common platform on which the team will do the evaluations, copied it from following :-
   Reference: Parag Gupta. https://github.com/karthikbox/cache_coherence/tree/p_template/main.da
     """
@@ -1139,13 +1144,16 @@ def main():
     proto_name = sys.argv[2] if len(sys.argv) > 2 else 'MOESI'
     trace_dir = sys.argv[3] if len(sys.argv) > 3 else './traces'
 
+    if nprocessors > 8:
+      print("Number of processors should be equal to number of trace files in the trace folder. As default trace directory contains 8 traces, please give at max 8 as the value")
+      exit()
+
     config(channel= 'fifo', clock= 'Lamport')
     
     start_cpu_time = time.process_time()
     start_elapsed_time = time.perf_counter()
     
     trace = get_traces(trace_dir,nprocessors)
-    print(trace)
     Proto_cache, Proto_ctrl = get_proto_class(proto_name)
     
     print('-----START-----')
