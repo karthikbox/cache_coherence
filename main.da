@@ -5,10 +5,7 @@ ENOTSUPP = 2
 CACHE_SIZE = 255
 
 def get_proto_class(name):
-  if name == "MI":
     return (eval("MI_PROTO_CACHE"), eval("MI_PROTO_CTRL"))
-  else:
-    exit(-ENOTSUPP)
 
 ## Exemplary implementation of PROTOCOL Classes
 """
